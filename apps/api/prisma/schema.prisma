@@ -1,0 +1,647 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SystemRole {
+  ADMIN
+  HR_BP
+  RECRUITMENT_LEAD
+  HIRING_MANAGER
+  RECRUITER
+  SECURITY
+}
+
+enum HiringRequestStatus {
+  NEW
+  PENDING_HR_BP
+  APPROVED_HR_BP
+  REJECTED_HR_BP
+  IN_PROGRESS
+  PAUSED
+  CANCELLED
+  CLOSED
+}
+
+enum OfferStatus {
+  DRAFT
+  PENDING_MANAGER
+  APPROVED_MANAGER
+  REJECTED_MANAGER
+  SENT_TO_CANDIDATE
+  ACCEPTED
+  DECLINED
+}
+
+enum CheckType {
+  SECURITY
+  HIRE_REQUEST
+  FEEDBACK
+}
+
+enum CheckStatus {
+  NEW
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum CandidateAddType {
+  MANUAL
+  RESPONSE
+  SEARCH
+  CALL
+  VISIT
+}
+
+enum JobBoard {
+  HH
+  SUPERJOB
+  AVITO
+  ZARPLATA
+  RABOTA
+  TRUDVSEM
+  MANUAL
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum QuestionnaireType {
+  TEST
+  VIDEO
+  HOMEWORK
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  FAILED
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  middleName         String?
+  phone              String?
+  role               SystemRole         @default(RECRUITER)
+  isActive           Boolean            @default(true)
+  orgUnitId          String?
+  orgUnit            OrgUnit?           @relation(fields: [orgUnitId], references: [id])
+  visibilityProfileId String?
+  visibilityProfile  VisibilityProfile? @relation(fields: [visibilityProfileId], references: [id])
+  refreshTokenHash   String?
+  sessionDeviceId    String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  hiringRequestsManaged HiringRequest[] @relation("HiringManager")
+  hiringRequestsRecruited HiringRequest[] @relation("Recruiter")
+  assignedTasks      Task[]             @relation("TaskAssignee")
+  createdTasks       Task[]             @relation("TaskCreator")
+  comments           Comment[]
+  statusChanges      CandidateStatusHistory[]
+  offersCreated      Offer[]            @relation("OfferCreator")
+  checksAssigned     Check[]            @relation("CheckAssignee")
+  savedFilters       SavedFilter[]
+  assignedCandidates Candidate[] @relation("CandidateAssignee")
+}
+
+model Branding {
+  id            String   @id @default(uuid())
+  companyName   String   @default("LogHR")
+  primaryColor  String   @default("#0B2A3D")
+  secondaryColor String  @default("#3D8B9C")
+  logoUrl       String?
+  updatedAt     DateTime @updatedAt
+}
+
+model OrgUnit {
+  id          String    @id @default(uuid())
+  name        String
+  code        String?
+  city        String?
+  address     String?
+  legalEntity String?
+  parentId    String?
+  parent      OrgUnit?  @relation("OrgTree", fields: [parentId], references: [id])
+  children    OrgUnit[] @relation("OrgTree")
+  isActive    Boolean   @default(true)
+  extra       Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users            User[]
+  demands          Demand[]
+  hiringRequests   HiringRequest[]
+  vacancies        Vacancy[]
+}
+
+model CandidateProfile {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  department  String?
+  grade       String?
+  isActive    Boolean  @default(true)
+  extra       Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  demands        Demand[]
+  hiringRequests HiringRequest[]
+  vacancies      Vacancy[]
+}
+
+model Demand {
+  id                  String           @id @default(uuid())
+  orgUnitId           String
+  orgUnit             OrgUnit          @relation(fields: [orgUnitId], references: [id])
+  candidateProfileId  String
+  candidateProfile    CandidateProfile @relation(fields: [candidateProfileId], references: [id])
+  positionsCount      Int              @default(0)
+  comment             String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  hiringRequests HiringRequest[]
+
+  @@unique([orgUnitId, candidateProfileId])
+}
+
+model Funnel {
+  id          String        @id @default(uuid())
+  name        String
+  code        String        @unique
+  isActive    Boolean       @default(true)
+  transitions Json?
+  stages      FunnelStage[]
+  vacancies   Vacancy[]
+  createdAt   DateTime      @default(now())
+}
+
+model FunnelStage {
+  id        String   @id @default(uuid())
+  funnelId  String
+  funnel    Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  order     Int
+  isFinal   Boolean  @default(false)
+  color     String?  @default("#64748b")
+
+  candidates Candidate[]
+  history    CandidateStatusHistory[]
+  tasks      Task[]
+  scenarios  AssessmentScenario[]
+
+  @@unique([funnelId, code])
+}
+
+model HiringRequest {
+  id                 String              @id @default(uuid())
+  title              String
+  status             HiringRequestStatus @default(NEW)
+  priority           Priority            @default(MEDIUM)
+  positionsCount     Int                 @default(1)
+  city               String?
+  comment            String?
+  orgUnitId          String
+  orgUnit            OrgUnit             @relation(fields: [orgUnitId], references: [id])
+  candidateProfileId String
+  candidateProfile   CandidateProfile    @relation(fields: [candidateProfileId], references: [id])
+  demandId           String?
+  demand             Demand?             @relation(fields: [demandId], references: [id])
+  vacancyId          String?
+  vacancy            Vacancy?            @relation(fields: [vacancyId], references: [id])
+  hiringManagerId    String?
+  hiringManager      User?               @relation("HiringManager", fields: [hiringManagerId], references: [id])
+  recruiterId        String?
+  recruiter          User?               @relation("Recruiter", fields: [recruiterId], references: [id])
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  candidates Candidate[]
+  tasks      Task[]
+  statusHistory HiringRequestStatusHistory[]
+}
+
+model HiringRequestStatusHistory {
+  id              String              @id @default(uuid())
+  hiringRequestId String
+  hiringRequest   HiringRequest       @relation(fields: [hiringRequestId], references: [id], onDelete: Cascade)
+  fromStatus      HiringRequestStatus?
+  toStatus        HiringRequestStatus
+  comment         String?
+  changedById     String?
+  createdAt       DateTime            @default(now())
+}
+
+model Vacancy {
+  id                 String           @id @default(uuid())
+  title              String
+  description        String?
+  city               String?
+  isActive           Boolean          @default(true)
+  orgUnitId          String?
+  orgUnit            OrgUnit?         @relation(fields: [orgUnitId], references: [id])
+  candidateProfileId String
+  candidateProfile   CandidateProfile @relation(fields: [candidateProfileId], references: [id])
+  funnelId           String
+  funnel             Funnel           @relation(fields: [funnelId], references: [id])
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  hiringRequests HiringRequest[]
+  candidates     Candidate[]
+  publications   Publication[]
+}
+
+model Candidate {
+  id               String           @id @default(uuid())
+  firstName        String
+  lastName         String
+  middleName       String?
+  phone            String?
+  email            String?
+  city             String?
+  address          String?
+  birthDate        DateTime?
+  gender           String?
+  citizenship      String?
+  about            String?
+  currentPosition  String?
+  desiredPosition  String?
+  resumeUrl        String?
+  resumeText       String?
+  source           JobBoard         @default(MANUAL)
+  addType          CandidateAddType @default(MANUAL)
+  employeeNumber   String?
+  vacancyId        String?
+  vacancy          Vacancy?         @relation(fields: [vacancyId], references: [id])
+  hiringRequestId  String?
+  hiringRequest    HiringRequest?   @relation(fields: [hiringRequestId], references: [id])
+  stageId          String?
+  stage            FunnelStage?     @relation(fields: [stageId], references: [id])
+  stageChangedAt   DateTime?
+  duplicateOfId    String?
+  isDepersonalized Boolean          @default(false)
+  pdnConsentAt     DateTime?
+  consentType      String?
+  externalId       String?
+  isFavorite       Boolean          @default(false)
+  isTracked        Boolean          @default(false)
+  salaryExpect     Float?
+  willingToRelocate Boolean         @default(false)
+  employmentType   String?
+  workSchedule     String?
+  lastJobMonths    Int?
+  resumeUpdatedAt  DateTime?
+  meetingAt        DateTime?
+  meetingType      String?
+  aiScore          Float?
+  assigneeId       String?
+  assignee         User?            @relation("CandidateAssignee", fields: [assigneeId], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  tags          CandidateTag[]
+  comments      Comment[]
+  attachments   Attachment[]
+  statusHistory CandidateStatusHistory[]
+  checks        Check[]
+  offers        Offer[]
+  responses     CandidateResponse[]
+  assessments   AssessmentAssignment[]
+  tasks         Task[]
+  proActionResults ProActionResult[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([lastName, firstName])
+  @@index([isFavorite])
+  @@index([meetingAt])
+}
+
+model CandidateStatusHistory {
+  id          String      @id @default(uuid())
+  candidateId String
+  candidate   Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  stageId     String
+  stage       FunnelStage @relation(fields: [stageId], references: [id])
+  comment     String?
+  formData    Json?
+  changedById String?
+  changedBy   User?       @relation(fields: [changedById], references: [id])
+  createdAt   DateTime    @default(now())
+}
+
+model TagCategory {
+  id           String  @id @default(uuid())
+  name         String
+  allowMultiple Boolean @default(true)
+  tags         Tag[]
+}
+
+model Tag {
+  id         String     @id @default(uuid())
+  name       String
+  categoryId String
+  category   TagCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  isArchived Boolean    @default(false)
+  candidates CandidateTag[]
+}
+
+model CandidateTag {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  tagId       String
+  tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime  @default(now())
+
+  @@unique([candidateId, tagId])
+}
+
+model Comment {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?     @relation(fields: [authorId], references: [id])
+  body        String
+  createdAt   DateTime  @default(now())
+}
+
+model Attachment {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  fileName    String
+  mimeType    String?
+  url         String
+  size        Int?
+  createdAt   DateTime  @default(now())
+}
+
+model Dictionary {
+  id        String           @id @default(uuid())
+  code      String           @unique
+  name      String
+  items     DictionaryItem[]
+  createdAt DateTime         @default(now())
+}
+
+model DictionaryItem {
+  id           String     @id @default(uuid())
+  dictionaryId String
+  dictionary   Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+  value        String
+  label        String
+  isActive     Boolean    @default(true)
+  sortOrder    Int        @default(0)
+
+  @@unique([dictionaryId, value])
+}
+
+model VisibilityProfile {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  rules       Json
+  createdAt   DateTime @default(now())
+  users       User[]
+}
+
+model ProcessRole {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  objectType  String
+  rules       Json
+  createdAt   DateTime @default(now())
+}
+
+model Check {
+  id            String      @id @default(uuid())
+  type          CheckType
+  status        CheckStatus @default(NEW)
+  candidateId   String
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assigneeId    String?
+  assignee      User?       @relation("CheckAssignee", fields: [assigneeId], references: [id])
+  formData      Json?
+  externalToken String?     @unique
+  comment       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Offer {
+  id            String      @id @default(uuid())
+  candidateId   String
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  status        OfferStatus @default(DRAFT)
+  position      String?
+  salary        Float?
+  currency      String      @default("RUB")
+  startDate     DateTime?
+  conditions    String?
+  pdfUrl        String?
+  externalToken String?     @unique
+  createdById   String?
+  createdBy     User?       @relation("OfferCreator", fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Task {
+  id              String     @id @default(uuid())
+  title           String
+  description     String?
+  status          TaskStatus @default(OPEN)
+  dueAt           DateTime?
+  assigneeId      String?
+  assignee        User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdById     String?
+  createdBy       User?      @relation("TaskCreator", fields: [createdById], references: [id])
+  candidateId     String?
+  candidate       Candidate? @relation(fields: [candidateId], references: [id])
+  hiringRequestId String?
+  hiringRequest   HiringRequest? @relation(fields: [hiringRequestId], references: [id])
+  stageId         String?
+  stage           FunnelStage? @relation(fields: [stageId], references: [id])
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model JobBoardAccount {
+  id           String   @id @default(uuid())
+  board        JobBoard
+  name         String
+  credentials  Json
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  publications Publication[]
+}
+
+model PublicationTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  board       JobBoard
+  body        Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Publication {
+  id          String            @id @default(uuid())
+  vacancyId   String
+  vacancy     Vacancy           @relation(fields: [vacancyId], references: [id])
+  board       JobBoard
+  accountId   String?
+  account     JobBoardAccount?  @relation(fields: [accountId], references: [id])
+  status      PublicationStatus @default(DRAFT)
+  externalId  String?
+  url         String?
+  payload     Json?
+  error       String?
+  publishedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model CandidateResponse {
+  id           String    @id @default(uuid())
+  candidateId  String
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  board        JobBoard
+  externalId   String?
+  rawPayload   Json?
+  receivedAt   DateTime  @default(now())
+}
+
+model Questionnaire {
+  id          String            @id @default(uuid())
+  name        String
+  type        QuestionnaireType
+  schema      Json
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  assignments AssessmentAssignment[]
+  scenarios   AssessmentScenario[]
+}
+
+model AssessmentScenario {
+  id              String         @id @default(uuid())
+  name            String
+  funnelStageId   String
+  funnelStage     FunnelStage    @relation(fields: [funnelStageId], references: [id])
+  questionnaireId String
+  questionnaire   Questionnaire  @relation(fields: [questionnaireId], references: [id])
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+}
+
+model AssessmentAssignment {
+  id              String        @id @default(uuid())
+  candidateId     String
+  candidate       Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  questionnaireId String
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id])
+  status          String        @default("PENDING")
+  result          Json?
+  externalToken   String?       @unique
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+}
+
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  channel   String   @default("EMAIL")
+  subject   String
+  body      String
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model NotificationLog {
+  id        String   @id @default(uuid())
+  channel   String
+  to        String
+  subject   String?
+  body      String
+  status    String
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+model PdnDocument {
+  id        String   @id @default(uuid())
+  type      String   @unique
+  title     String
+  content   String
+  updatedAt DateTime @updatedAt
+}
+
+model Source {
+  id        String  @id @default(uuid())
+  name      String
+  code      String  @unique
+  isPrimary Boolean @default(true)
+  isActive  Boolean @default(true)
+}
+
+model SavedFilter {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  entity    String   @default("candidates")
+  payload   Json
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, entity])
+}
+
+model IntegrationStatus {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  configured Boolean @default(false)
+  meta      Json?
+  updatedAt DateTime @updatedAt
+}
+
+model ProActionResult {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  externalId  String?
+  status      String    @default("PENDING")
+  score       Float?
+  payload     Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}

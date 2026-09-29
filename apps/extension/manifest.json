@@ -1,0 +1,22 @@
+﻿{
+  "name": "loghr-hh-parser",
+  "version": "1.0.0",
+  "description": "Парсинг резюме HH.ru в ATS LogHR",
+  "manifest_version": 3,
+  "action": {
+    "default_title": "Добавить кандидата в ATS",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://hh.ru/*",
+    "https://*.hh.ru/*",
+    "http://localhost:3001/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://hh.ru/resume/*", "https://*.hh.ru/resume/*"],
+      "js": ["content.js"]
+    }
+  ]
+}

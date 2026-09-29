@@ -1,0 +1,32 @@
+{
+  "name": "loghr-ats",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w @skillaz/api",
+    "dev:web": "npm run dev -w @skillaz/web",
+    "dev:worker": "npm run dev -w @skillaz/worker",
+    "build": "npm run build --workspaces --if-present",
+    "db:generate": "npm run prisma:generate -w @skillaz/api",
+    "db:migrate": "npm run prisma:migrate -w @skillaz/api",
+    "db:seed": "npm run prisma:seed -w @skillaz/api",
+    "docker:up": "docker compose up -d postgres redis minio minio-init metabase",
+    "docker:down": "docker compose down",
+    "docker:prod": "docker compose --profile prod up -d --build",
+    "bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1",
+    "dev:clean": "powershell -ExecutionPolicy Bypass -File scripts/dev-clean.ps1",
+    "ci": "powershell -ExecutionPolicy Bypass -File scripts/ci.ps1",
+    "test": "node scripts/smoke-api.mjs",
+    "test:e2e": "npx --yes playwright test -c apps/web/playwright.config.js",
+    "metabase:bootstrap": "node scripts/metabase-bootstrap.mjs",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy -w @skillaz/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

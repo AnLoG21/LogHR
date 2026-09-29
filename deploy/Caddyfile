@@ -1,0 +1,13 @@
+{
+  email www.skillaz.local
+}
+
+:80 {
+  encode gzip
+  handle_path /api* {
+    reverse_proxy api:3001
+  }
+  handle {
+    reverse_proxy web:3000
+  }
+}

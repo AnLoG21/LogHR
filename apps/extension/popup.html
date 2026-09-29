@@ -1,0 +1,22 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>ATS import</title>
+  <style>
+    body { font-family: Manrope, Segoe UI, sans-serif; width: 320px; margin: 0; padding: 14px; background: #0B2A3D; color: #fff; }
+    input, button { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; border-radius: 8px; border: 0; }
+    button { background: #3D8B9C; color: #fff; font-weight: 700; cursor: pointer; }
+    .msg { font-size: 12px; margin-top: 8px; opacity: .9; }
+  </style>
+</head>
+<body>
+  <div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.6">LogHR</div>
+  <h1 style="font-size:16px;margin:8px 0 12px">Импорт резюме HH</h1>
+  <input id="api" placeholder="API URL" value="http://localhost:3001" />
+  <input id="token" placeholder="Bearer access token" />
+  <button id="go">Добавить кандидата</button>
+  <div class="msg" id="msg"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

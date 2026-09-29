@@ -1,0 +1,124 @@
+import {
+  Body, Controller, Get, Injectable, Module, NotFoundException, Param, Post, Query,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CheckStatus, CheckType, SystemRole } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthUser, Public, Roles } from '../common/guards';
+import { pageResult, paginate } from '../common/pagination';
+
+@Injectable()
+export class ChecksService {
+  constructor(private prisma: PrismaService) {}
+
+  async list(query: { page?: number; pageSize?: number; type?: CheckType; status?: CheckStatus }) {
+    const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
+    const where = {
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.check.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          candidate: { select: { id: true, firstName: true, lastName: true } },
+          assignee: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.check.count({ where }),
+    ]);
+    return pageResult(items, total, page, pageSize);
+  }
+
+  create(data: { candidateId: string; type: CheckType; assigneeId?: string; formData?: any }, user: AuthUser) {
+    return this.prisma.check.create({
+      data: {
+        candidateId: data.candidateId,
+        type: data.type,
+        assigneeId: data.assigneeId || (data.type === 'SECURITY' ? undefined : user.id),
+        formData: data.formData,
+        externalToken: randomUUID(),
+      },
+    });
+  }
+
+  changeStatus(id: string, status: CheckStatus, comment?: string, formData?: any) {
+    return this.prisma.check.update({
+      where: { id },
+      data: { status, comment, ...(formData ? { formData } : {}) },
+    });
+  }
+
+  async getByToken(token: string) {
+    const check = await this.prisma.check.findUnique({
+      where: { externalToken: token },
+      include: { candidate: { select: { firstName: true, lastName: true } } },
+    });
+    if (!check) throw new NotFoundException();
+    return check;
+  }
+
+  async submitExternal(token: string, formData: any) {
+    const check = await this.getByToken(token);
+    return this.prisma.check.update({
+      where: { id: check.id },
+      data: { formData, status: 'IN_PROGRESS' },
+    });
+  }
+}
+
+@ApiTags('checks')
+@Controller('checks')
+export class ChecksController {
+  constructor(private service: ChecksService) {}
+
+  @ApiBearerAuth()
+  @Get()
+  list(
+    @Query('page') page?: number,
+    @Query('pageSize') pageSize?: number,
+    @Query('type') type?: CheckType,
+    @Query('status') status?: CheckStatus,
+  ) {
+    return this.service.list({ page, pageSize, type, status });
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.SECURITY, SystemRole.HR_BP)
+  @Post()
+  create(
+    @Body() dto: { candidateId: string; type: CheckType; assigneeId?: string; formData?: any },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.create(dto, user);
+  }
+
+  @ApiBearerAuth()
+  @Post(':id/status')
+  status(
+    @Param('id') id: string,
+    @Body() dto: { status: CheckStatus; comment?: string; formData?: any },
+  ) {
+    return this.service.changeStatus(id, dto.status, dto.comment, dto.formData);
+  }
+
+  @Public()
+  @Get('public/:token')
+  publicGet(@Param('token') token: string) {
+    return this.service.getByToken(token);
+  }
+
+  @Public()
+  @Post('public/:token')
+  publicSubmit(@Param('token') token: string, @Body() formData: any) {
+    return this.service.submitExternal(token, formData);
+  }
+}
+
+@Module({ controllers: [ChecksController], providers: [ChecksService], exports: [ChecksService] })
+export class ChecksModule {}
