@@ -1,21 +1,37 @@
 ﻿{
-  "name": "loghr-hh-parser",
-  "version": "1.0.0",
-  "description": "Парсинг резюме HH.ru в ATS LogHR",
+  "name": "LogHR Job Boards Importer",
+  "version": "1.1.0",
+  "description": "Импорт резюме с HH / SuperJob / Avito / Zarplata в ATS LogHR",
   "manifest_version": 3,
   "action": {
-    "default_title": "Добавить кандидата в ATS",
+    "default_title": "Добавить кандидата в LogHR",
     "default_popup": "popup.html"
   },
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://hh.ru/*",
     "https://*.hh.ru/*",
-    "http://localhost:3001/*"
+    "https://www.superjob.ru/*",
+    "https://superjob.ru/*",
+    "https://www.avito.ru/*",
+    "https://avito.ru/*",
+    "https://www.zarplata.ru/*",
+    "https://zarplata.ru/*",
+    "http://localhost:3001/*",
+    "https://*/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://hh.ru/resume/*", "https://*.hh.ru/resume/*"],
+      "matches": [
+        "https://hh.ru/resume/*",
+        "https://*.hh.ru/resume/*",
+        "https://www.superjob.ru/resume/*",
+        "https://superjob.ru/resume/*",
+        "https://www.avito.ru/*",
+        "https://avito.ru/*",
+        "https://www.zarplata.ru/resume/*",
+        "https://zarplata.ru/resume/*"
+      ],
       "js": ["content.js"]
     }
   ]

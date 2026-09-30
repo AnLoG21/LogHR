@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Injectable, Module, Post, Headers, Param } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -35,6 +35,7 @@ export class IntegrationsService {
       S3: process.env.STORAGE_MODE === 's3' && !!process.env.S3_ENDPOINT,
       AI: !!(process.env.AI_API_KEY && process.env.AI_BASE_URL),
       HH_CHAT: !!(process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN),
+      DADATA: !!(process.env.DADATA_TOKEN || process.env.DADATA_API_KEY),
     };
     return rows.map((r) => {
       const live = !!envMap[r.code];
@@ -64,6 +65,7 @@ export class IntegrationsService {
       { code: 'S3', name: 'MinIO / S3' },
       { code: 'AI', name: 'AI (parse/score/hints)' },
       { code: 'HH_CHAT', name: 'HH Chat sync' },
+      { code: 'DADATA', name: 'DaData адреса' },
     ];
     for (const d of defaults) {
       await this.prisma.integrationStatus.upsert({
@@ -237,6 +239,47 @@ export class IntegrationsService {
     }
     return { ok: true, negotiationId };
   }
+
+  async dadataSuggest(query: string, count = 7) {
+    const token = process.env.DADATA_TOKEN || process.env.DADATA_API_KEY;
+    if (!token) {
+      return {
+        configured: false,
+        suggestions: [],
+        note: 'DaData не настроена (DADATA_TOKEN). Введите адрес вручную.',
+      };
+    }
+    if (!query?.trim()) return { configured: true, suggestions: [] };
+    try {
+      const res = await fetch('https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Token ${token}`,
+        },
+        body: JSON.stringify({ query: query.trim(), count }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { configured: true, suggestions: [], note: `DaData ${res.status}: ${text.slice(0, 160)}` };
+      }
+      const data = await res.json();
+      const suggestions = (data.suggestions || []).map((s: any) => ({
+        value: s.value as string,
+        unrestricted: s.unrestricted_value as string,
+        city: s.data?.city || s.data?.settlement || null,
+        region: s.data?.region_with_type || s.data?.region || null,
+        postalCode: s.data?.postal_code || null,
+        geoLat: s.data?.geo_lat || null,
+        geoLon: s.data?.geo_lon || null,
+        raw: s.data,
+      }));
+      return { configured: true, suggestions, note: suggestions.length ? undefined : 'Ничего не найдено' };
+    } catch (e: any) {
+      return { configured: true, suggestions: [], note: e?.message || 'Ошибка DaData' };
+    }
+  }
 }
 
 @ApiTags('integrations')
@@ -273,6 +316,12 @@ export class IntegrationsController {
   @Post('hh-chat/:candidateId')
   sendHhChat(@Param('candidateId') candidateId: string, @Body('text') text: string) {
     return this.service.sendHhChat(candidateId, text);
+  }
+
+  @ApiBearerAuth()
+  @Get('dadata/suggest')
+  dadataSuggest(@Query('q') q?: string, @Query('count') count?: string) {
+    return this.service.dadataSuggest(q || '', count ? Number(count) : 7);
   }
 }
 

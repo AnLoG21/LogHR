@@ -50,6 +50,7 @@ Local migrate: `npm run db:migrate` (`prisma db push`).
 Prod: только `prisma migrate deploy` — без seed.
 
 ## Документация
+- [docs/TZ-COMPLIANCE.md](docs/TZ-COMPLIANCE.md) — чеклист соответствия ТЗ Skillaz «Базовый расширенный»
 - [docs/ADMIN.md](docs/ADMIN.md) — роли, Metabase, AI
 - [docs/UAT.md](docs/UAT.md) — чеклист приёмки
 - [docs/OPENAPI-1C.md](docs/OPENAPI-1C.md)
@@ -69,4 +70,5 @@ Prod: только `prisma migrate deploy` — без seed.
 | `STORAGE_MODE` + `S3_*` | `local` | `s3` + бакет |
 | `REDIS_URL` | опционально | очереди worker |
 | `PROACTION_WEBHOOK_SECRET` / `HH_CHAT_TOKEN` | stub | боевые интеграции (HH Chat также принимает `HH_ACCESS_TOKEN`) |
+| `DADATA_TOKEN` | пусто → ручной адрес | подсказки адресов |
 | `METABASE_URL` (+ email/password) | ссылка на дашборд | `npm run metabase:bootstrap` |

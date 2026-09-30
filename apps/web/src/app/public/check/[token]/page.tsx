@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Button, Card, Textarea } from '@/components/ui';
+import { CHECK_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -39,7 +40,7 @@ export default function PublicCheckPage() {
       </div>
       <div className="max-w-xl mx-auto px-4 py-8">
         <Card className="p-6 space-y-4">
-          <div className="text-sm">Тип: <strong>{data?.type}</strong></div>
+          <div className="text-sm">Тип: <strong>{ruLabel(CHECK_TYPE_LABELS, data?.type)}</strong></div>
           <div className="text-sm">Кандидат: <strong>{data?.candidate?.lastName} {data?.candidate?.firstName}</strong></div>
           <Textarea placeholder="Комментарий / данные анкеты" value={notes} onChange={(e) => setNotes(e.target.value)} />
           {submit.isSuccess ? (

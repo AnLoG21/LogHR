@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { AppShell, Card, Empty } from '@/components/ui';
 import { api } from '@/lib/api';
+import { NOTIFICATION_CHANNEL_LABELS, NOTIFICATION_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 
 export default function NotificationsPage() {
   const templates = useQuery({ queryKey: ['notif-templates'], queryFn: () => api<any[]>('/notifications/templates') });
@@ -29,7 +30,7 @@ export default function NotificationsPage() {
             {(logs.data?.items || logs.data || []).slice?.(0, 30)?.map?.((l: any) => (
               <div key={l.id} className="border-b border-[var(--line)] pb-2">
                 <div>{l.to || l.recipient || '—'}</div>
-                <div className="text-xs text-[var(--muted)]">{l.channel || 'email'} · {l.status || '—'}</div>
+                <div className="text-xs text-[var(--muted)]">{ruLabel(NOTIFICATION_CHANNEL_LABELS, l.channel, 'Email')} · {ruLabel(NOTIFICATION_STATUS_LABELS, l.status)}</div>
               </div>
             )) || <Empty text="Логов нет или endpoint недоступен" />}
           </div>

@@ -131,6 +131,108 @@ export const ROLE_LABELS: Record<SystemRole, string> = {
   [SystemRole.SECURITY]: 'Сотрудник СБ',
 };
 
+export const CHECK_TYPE_LABELS: Record<string, string> = {
+  SECURITY: 'Проверка СБ',
+  HIRE_REQUEST: 'Запрос на найм',
+  FEEDBACK: 'Обратная связь',
+};
+
+export const CHECK_STATUS_LABELS: Record<string, string> = {
+  NEW: 'Новая',
+  IN_PROGRESS: 'В работе',
+  APPROVED: 'Одобрена',
+  REJECTED: 'Отклонена',
+  CANCELLED: 'Отменена',
+};
+
+export const JOB_BOARD_LABELS: Record<string, string> = {
+  HH: 'HeadHunter',
+  SUPERJOB: 'SuperJob',
+  AVITO: 'Авито Работа',
+  ZARPLATA: 'Зарплата.ру',
+  RABOTA: 'Работа.ру',
+  TRUDVSEM: 'Работа России',
+  MANUAL: 'Добавлен вручную',
+  CAREER_SITE: 'Карьерный сайт',
+};
+
+export const CANDIDATE_ADD_TYPE_LABELS: Record<string, string> = {
+  MANUAL: 'Вручную',
+  RESPONSE: 'Отклик',
+  SEARCH: 'Поиск',
+  CALL: 'Звонок',
+  VISIT: 'Личный визит',
+};
+
+export const PRIORITY_LABELS: Record<string, string> = {
+  LOW: 'Низкий',
+  MEDIUM: 'Средний',
+  HIGH: 'Высокий',
+};
+
+export const PUBLICATION_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Черновик',
+  PUBLISHED: 'Опубликована',
+  ARCHIVED: 'В архиве',
+  FAILED: 'Ошибка',
+};
+
+export const QUESTIONNAIRE_TYPE_LABELS: Record<string, string> = {
+  TEST: 'Тест',
+  VIDEO: 'Видеоинтервью',
+  HOMEWORK: 'Домашнее задание',
+};
+
+export const ASSIGNMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Ожидает прохождения',
+  COMPLETED: 'Пройдено',
+};
+
+export const TASK_STATUS_LABELS: Record<string, string> = {
+  OPEN: 'Открыта',
+  DONE: 'Выполнена',
+  CANCELLED: 'Отменена',
+};
+
+export const PDN_DOC_TYPE_LABELS: Record<string, string> = {
+  POLICY: 'Политика обработки ПДн',
+  CONSENT: 'Согласие на обработку ПДн',
+};
+
+export const NOTIFICATION_CHANNEL_LABELS: Record<string, string> = {
+  EMAIL: 'Email',
+  SMS: 'SMS',
+  email: 'Email',
+};
+
+export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
+  SENT: 'Отправлено',
+  MOCKED: 'Тестовый режим (SMTP не настроен)',
+  FAILED: 'Ошибка',
+  SKIPPED: 'Пропущено',
+  PENDING: 'В очереди',
+};
+
+export const CUSTOM_FIELD_ENTITY_LABELS: Record<string, string> = {
+  ORG_UNIT: 'Орг. единица',
+  CANDIDATE_PROFILE: 'Профиль кандидата',
+  VACANCY: 'Вакансия',
+  HIRING_REQUEST: 'Заявка',
+  CANDIDATE: 'Кандидат',
+};
+
+export const CUSTOM_FIELD_TYPE_LABELS: Record<string, string> = {
+  string: 'Строка',
+  number: 'Число',
+  boolean: 'Да/Нет',
+  select: 'Список',
+};
+
+export function ruLabel(map: Record<string, string>, value?: string | null, fallback = '—'): string {
+  if (!value) return fallback;
+  return map[value] ?? value;
+}
+
 export const FUNNEL_1_STAGES = [
   { code: 'NEW', name: 'Новый', order: 1 },
   { code: 'PHONE', name: 'Телефонное интервью', order: 2 },
@@ -192,6 +294,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: '/publications', label: 'Аккаунты', icon: 'globe', roles: [SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD] },
       { href: '/publications?tab=templates', label: 'Шаблоны публикаций', icon: 'template', roles: [SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD] },
       { href: '/publications?tab=search', label: 'Автопоиски', icon: 'search', roles: [SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD] },
+      { href: '/publications?tab=auto', label: 'Авторазмещения', icon: 'globe', roles: [SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD] },
     ],
   },
   {
@@ -201,6 +304,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: '/admin', label: 'Пользователи и роли', icon: 'settings', roles: [SystemRole.ADMIN] },
       { href: '/funnels', label: 'Воронки', icon: 'flow', roles: [SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD] },
       { href: '/visibility', label: 'Профили видимости', icon: 'eye', roles: [SystemRole.ADMIN] },
+      { href: '/custom-fields', label: 'Кастомные поля', icon: 'list', roles: [SystemRole.ADMIN] },
       { href: '/dictionaries', label: 'Справочники', icon: 'list', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },
       { href: '/tags', label: 'Теги', icon: 'star', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITER] },
       { href: '/notifications', label: 'Шаблоны писем', icon: 'template', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },

@@ -15,6 +15,7 @@ import {
   filtersToQuery,
 } from '@/components/candidate-filters';
 import clsx from 'clsx';
+import { CHECK_STATUS_LABELS, CHECK_TYPE_LABELS, JOB_BOARD_LABELS, ruLabel } from '@skillaz/shared';
 
 function ageLabel(birthDate?: string | null) {
   if (!birthDate) return null;
@@ -514,7 +515,7 @@ function CandidateCard({
             {visibleFields.source ? (
               <div className="meta-row">
                 <span className="meta-label">Источник</span>
-                <span>{c.source === 'HH' ? 'HH' : c.source || 'Добавлен вручную'}</span>
+                <span>{ruLabel(JOB_BOARD_LABELS, c.source, 'Добавлен вручную')}</span>
               </div>
             ) : null}
             {visibleFields.time ? (
@@ -538,7 +539,7 @@ function CandidateCard({
 
           {visibleFields.checks && c.checks?.length ? (
             <div style={{ marginTop: 10, fontSize: 12, color: 'var(--sk-muted)' }}>
-              Проверки: {c.checks.map((ch: any) => `${ch.type} — ${ch.status}`).join('; ')}
+              Проверки: {c.checks.map((ch: any) => `${ruLabel(CHECK_TYPE_LABELS, ch.type)} — ${ruLabel(CHECK_STATUS_LABELS, ch.status)}`).join('; ')}
             </div>
           ) : null}
         </div>

@@ -1,10 +1,10 @@
 import {
-  Body, Controller, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
+  Body, Controller, ForbiddenException, Get, Headers, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JobBoard, Prisma, SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { Roles } from '../common/guards';
+import { Public, Roles } from '../common/guards';
 import { getJobBoardAdapter } from '../job-boards/adapters';
 
 @Injectable()
@@ -54,6 +54,95 @@ export class PublicationsService {
     });
   }
 
+  listAutoRules(vacancyId?: string) {
+    return this.prisma.autoPublishRule.findMany({
+      where: vacancyId ? { vacancyId } : undefined,
+      orderBy: { createdAt: 'desc' },
+      include: { vacancy: { select: { id: true, title: true, city: true } } },
+    });
+  }
+
+  async createAutoRule(data: {
+    vacancyId: string;
+    board: JobBoard;
+    templateId?: string;
+    intervalHours?: number;
+    regionHint?: string;
+    isActive?: boolean;
+  }) {
+    const vacancy = await this.prisma.vacancy.findUnique({ where: { id: data.vacancyId } });
+    if (!vacancy) throw new NotFoundException('Вакансия не найдена');
+    const hours = Math.max(1, data.intervalHours ?? 24);
+    return this.prisma.autoPublishRule.create({
+      data: {
+        vacancyId: data.vacancyId,
+        board: data.board,
+        templateId: data.templateId,
+        intervalHours: hours,
+        regionHint: data.regionHint || vacancy.city || undefined,
+        isActive: data.isActive ?? true,
+        nextRunAt: new Date(),
+      },
+    });
+  }
+
+  async updateAutoRule(
+    id: string,
+    data: Partial<{ board: JobBoard; templateId: string | null; intervalHours: number; regionHint: string; isActive: boolean }>,
+  ) {
+    const existing = await this.prisma.autoPublishRule.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Правило не найдено');
+    return this.prisma.autoPublishRule.update({
+      where: { id },
+      data: {
+        ...(data.board != null ? { board: data.board } : {}),
+        ...(data.templateId !== undefined ? { templateId: data.templateId } : {}),
+        ...(data.intervalHours != null ? { intervalHours: Math.max(1, data.intervalHours) } : {}),
+        ...(data.regionHint != null ? { regionHint: data.regionHint } : {}),
+        ...(data.isActive != null ? { isActive: data.isActive } : {}),
+      },
+    });
+  }
+
+  async runDueAutoPublishes(limit = 20) {
+    const now = new Date();
+    const due = await this.prisma.autoPublishRule.findMany({
+      where: {
+        isActive: true,
+        OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
+      },
+      take: limit,
+      orderBy: { nextRunAt: 'asc' },
+    });
+    const results: Array<{ ruleId: string; ok: boolean; publicationId?: string; error?: string }> = [];
+    for (const rule of due) {
+      try {
+        const pub = await this.publish({
+          vacancyId: rule.vacancyId,
+          board: rule.board,
+          templateId: rule.templateId || undefined,
+        });
+        const next = new Date(Date.now() + rule.intervalHours * 3600_000);
+        await this.prisma.autoPublishRule.update({
+          where: { id: rule.id },
+          data: { lastRunAt: now, nextRunAt: next, lastError: pub.status === 'FAILED' ? pub.error : null },
+        });
+        results.push({ ruleId: rule.id, ok: pub.status !== 'FAILED', publicationId: pub.id, error: pub.error || undefined });
+      } catch (e: any) {
+        await this.prisma.autoPublishRule.update({
+          where: { id: rule.id },
+          data: {
+            lastRunAt: now,
+            nextRunAt: new Date(Date.now() + rule.intervalHours * 3600_000),
+            lastError: e?.message || 'auto-publish failed',
+          },
+        });
+        results.push({ ruleId: rule.id, ok: false, error: e?.message });
+      }
+    }
+    return { ran: results.length, results };
+  }
+
   async publish(data: {
     vacancyId: string;
     board: JobBoard;
@@ -91,7 +180,7 @@ export class PublicationsService {
           profile: vacancy.candidateProfile.name,
           templateId: data.templateId || null,
           template: templateBody,
-        },
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -119,7 +208,7 @@ export class PublicationsService {
             templateId: data.templateId || null,
             template: templateBody,
             mocked,
-          },
+          } as Prisma.InputJsonValue,
         },
       });
     } catch (e: any) {
@@ -133,21 +222,23 @@ export class PublicationsService {
 
 @ApiTags('publications')
 @ApiBearerAuth()
-@Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
 @Controller('publications')
 export class PublicationsController {
   constructor(private service: PublicationsService) {}
 
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Get()
   list(@Query('vacancyId') vacancyId?: string) {
     return this.service.list(vacancyId);
   }
 
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Get('templates')
   templates(@Query('all') all?: string) {
     return this.service.templates(all === '1' || all === 'true');
   }
 
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Post('templates')
   createTemplate(
     @Body() dto: { name: string; board: JobBoard; body?: Record<string, unknown>; isActive?: boolean },
@@ -155,6 +246,7 @@ export class PublicationsController {
     return this.service.createTemplate(dto);
   }
 
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Patch('templates/:id')
   updateTemplate(
     @Param('id') id: string,
@@ -163,6 +255,55 @@ export class PublicationsController {
     return this.service.updateTemplate(id, dto);
   }
 
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Get('auto-rules')
+  listAutoRules(@Query('vacancyId') vacancyId?: string) {
+    return this.service.listAutoRules(vacancyId);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Post('auto-rules')
+  createAutoRule(
+    @Body()
+    dto: {
+      vacancyId: string;
+      board: JobBoard;
+      templateId?: string;
+      intervalHours?: number;
+      regionHint?: string;
+      isActive?: boolean;
+    },
+  ) {
+    return this.service.createAutoRule(dto);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Patch('auto-rules/:id')
+  updateAutoRule(
+    @Param('id') id: string,
+    @Body()
+    dto: Partial<{ board: JobBoard; templateId: string | null; intervalHours: number; regionHint: string; isActive: boolean }>,
+  ) {
+    return this.service.updateAutoRule(id, dto);
+  }
+
+  @Public()
+  @Post('auto-run')
+  autoRun(@Headers('x-worker-token') workerToken?: string) {
+    const expected = process.env.WORKER_TOKEN;
+    if (expected && workerToken !== expected) {
+      throw new ForbiddenException('Invalid worker token');
+    }
+    return this.service.runDueAutoPublishes();
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Post('auto-run/now')
+  autoRunNow() {
+    return this.service.runDueAutoPublishes();
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Post()
   publish(@Body() dto: { vacancyId: string; board: JobBoard; accountId?: string; templateId?: string }) {
     return this.service.publish(dto);

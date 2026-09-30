@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Badge, Button, Card, Empty } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
+import { CHECK_STATUS_LABELS, CHECK_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
 export default function ChecksPage() {
   const qc = useQueryClient();
@@ -31,9 +32,9 @@ export default function ChecksPage() {
           <tbody className="divide-y divide-[var(--line)]">
             {(data?.items || []).map((c: any) => (
               <tr key={c.id} className="hover:bg-[#f7fbfc]">
-                <td className="px-4 py-3">{c.type}</td>
+                <td className="px-4 py-3">{ruLabel(CHECK_TYPE_LABELS, c.type)}</td>
                 <td className="px-4 py-3">{c.candidate ? fullName(c.candidate) : '—'}</td>
-                <td className="px-4 py-3"><Badge color="amber">{c.status}</Badge></td>
+                <td className="px-4 py-3"><Badge color={c.status === 'APPROVED' ? 'green' : c.status === 'REJECTED' ? 'rose' : 'amber'}>{ruLabel(CHECK_STATUS_LABELS, c.status)}</Badge></td>
                 <td className="px-4 py-3 space-x-1">
                   <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'APPROVED' })}>Одобрить</Button>
                   <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'REJECTED' })}>Отклонить</Button>

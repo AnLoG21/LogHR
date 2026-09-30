@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Button, Card, Empty, Icon, Input, Modal } from '@/components/ui';
+import { AddressSuggest } from '@/components/address-suggest';
 import { api } from '@/lib/api';
 import { downloadXlsx, uploadXlsx } from '@/lib/export';
 
@@ -14,6 +15,8 @@ export default function OrgUnitsPage() {
   const [codeFilter, setCodeFilter] = useState('');
   const [cityFilter, setCityFilter] = useState('');
   const [msg, setMsg] = useState('');
+  const [addr, setAddr] = useState('');
+  const [cityDraft, setCityDraft] = useState('');
 
   const list = useQuery({
     queryKey: ['org-units', nameFilter, cityFilter],
@@ -121,15 +124,23 @@ export default function OrgUnitsPage() {
             create.mutate({
               name: fd.get('name'),
               code: fd.get('code') || undefined,
-              city: fd.get('city') || undefined,
-              address: fd.get('address') || undefined,
+              city: cityDraft || fd.get('city') || undefined,
+              address: addr || undefined,
             });
           }}
         >
           <Input name="name" placeholder="Название" required />
           <Input name="code" placeholder="Код / внешний ID" />
-          <Input name="city" placeholder="Город" />
-          <Input name="address" placeholder="Адрес" />
+          <Input name="city" placeholder="Город" value={cityDraft} onChange={(e) => setCityDraft(e.target.value)} />
+          <AddressSuggest
+            value={addr}
+            onChange={setAddr}
+            onPick={(s) => {
+              setAddr(s.value);
+              if (s.city) setCityDraft(s.city);
+            }}
+            placeholder="Адрес (DaData)"
+          />
           <Button type="submit" disabled={create.isPending}>Создать</Button>
           {create.isError ? <div className="text-sm text-[var(--sk-danger)]">Ошибка создания (нужна роль ADMIN/HR BP)</div> : null}
         </form>

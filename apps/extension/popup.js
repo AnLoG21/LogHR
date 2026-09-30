@@ -14,8 +14,8 @@ document.getElementById('go').onclick = async () => {
   msg.textContent = 'Читаем страницу…';
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   chrome.tabs.sendMessage(tab.id, { type: 'PARSE_RESUME' }, async (res) => {
-    if (!res?.ok) {
-      msg.textContent = 'Откройте страницу резюме HH.ru';
+    if (chrome.runtime.lastError || !res?.ok) {
+      msg.textContent = 'Откройте резюме HH / SuperJob / Avito / Zarplata';
       return;
     }
     try {
@@ -29,7 +29,9 @@ document.getElementById('go').onclick = async () => {
       });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
-      msg.textContent = data.id ? `Создан: ${data.lastName} ${data.firstName}` : 'Импорт выполнен';
+      msg.textContent = data.id
+        ? `Создан (${res.board || res.data.source}): ${data.lastName} ${data.firstName}`
+        : 'Импорт выполнен';
     } catch (e) {
       msg.textContent = `Ошибка: ${e.message}`;
     }

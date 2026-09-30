@@ -1,14 +1,16 @@
-# Chrome extension — LogHR HH parser
+# Chrome extension — LogHR Job Boards Importer
 
-Импорт резюме с hh.ru в LogHR ATS.
+Импорт резюме с **HH / SuperJob / Avito / Zarplata** в LogHR ATS.
 
-1. Откройте `chrome://extensions`
-2. Включите «Режим разработчика»
-3. «Загрузить распакованное» → папка `apps/extension`
-4. Войдите в LogHR (http://localhost:3000), DevTools → Application → Local Storage → скопируйте `accessToken`
-5. На странице резюме HH откройте popup расширения, вставьте token, нажмите «Добавить кандидата»
+## Локальная установка (developer mode)
 
-API: `POST /api/candidates` с полями из DOM резюме.  
-Без валидного JWT импорт вернёт 401.
+1. `chrome://extensions` → «Режим разработчика»
+2. «Загрузить распакованное» → папка `apps/extension`
+3. Войдите в LogHR, скопируйте `accessToken` из Local Storage
+4. Откройте резюме на поддерживаемом сайте → popup → вставьте token → «Добавить кандидата»
 
-Env UI: `NEXT_PUBLIC_API_URL` (по умолчанию `http://localhost:3001`).
+API: `POST /api/candidates`.
+
+## Chrome Web Store
+
+См. [STORE.md](./STORE.md) — чеклист публикации (иконки, privacy, zip). Сама модерация Google выполняется вручную владельцем аккаунта разработчика.

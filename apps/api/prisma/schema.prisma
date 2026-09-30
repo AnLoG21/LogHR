@@ -67,6 +67,7 @@ enum JobBoard {
   RABOTA
   TRUDVSEM
   MANUAL
+  CAREER_SITE
 }
 
 enum TaskStatus {
@@ -261,18 +262,21 @@ model Vacancy {
   description        String?
   city               String?
   isActive           Boolean          @default(true)
+  isPublicApply      Boolean          @default(false)
   orgUnitId          String?
   orgUnit            OrgUnit?         @relation(fields: [orgUnitId], references: [id])
   candidateProfileId String
   candidateProfile   CandidateProfile @relation(fields: [candidateProfileId], references: [id])
   funnelId           String
   funnel             Funnel           @relation(fields: [funnelId], references: [id])
+  extra              Json?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  hiringRequests HiringRequest[]
-  candidates     Candidate[]
-  publications   Publication[]
+  hiringRequests   HiringRequest[]
+  candidates       Candidate[]
+  publications     Publication[]
+  autoPublishRules AutoPublishRule[]
 }
 
 model Candidate {
@@ -320,6 +324,7 @@ model Candidate {
   aiScore          Float?
   assigneeId       String?
   assignee         User?            @relation("CandidateAssignee", fields: [assigneeId], references: [id])
+  extra            Json?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -527,6 +532,39 @@ model Publication {
   publishedAt DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
+}
+
+model AutoPublishRule {
+  id           String    @id @default(uuid())
+  vacancyId    String
+  vacancy      Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  board        JobBoard
+  templateId   String?
+  intervalHours Int      @default(24)
+  regionHint   String?
+  isActive     Boolean   @default(true)
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([isActive, nextRunAt])
+}
+
+model CustomFieldDefinition {
+  id         String   @id @default(uuid())
+  entityType String
+  code       String
+  label      String
+  fieldType  String   @default("string")
+  options    Json?
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, code])
 }
 
 model CandidateResponse {

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
-import { HIRING_REQUEST_STATUS_LABELS, HiringRequestStatus } from '@skillaz/shared';
+import { HIRING_REQUEST_STATUS_LABELS, HiringRequestStatus, PRIORITY_LABELS, ruLabel } from '@skillaz/shared';
 import { AppShell, Button, Card, Empty, Icon, Input, Modal, Select } from '@/components/ui';
 import { api } from '@/lib/api';
 
@@ -81,7 +81,7 @@ export default function RequestsPage() {
                   <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Количество позиций</span><span>{r.positionsCount}</span></div>
                   <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Орг единица</span><span className="truncate">{r.orgUnit?.name || '—'}</span></div>
                   <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Адрес / Рабочее место</span><span>{r.workAddress || r.city || '—'}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Приоритет заявки</span><span>{r.priority}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Приоритет заявки</span><span>{ruLabel(PRIORITY_LABELS, r.priority)}</span></div>
                   <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Плановая дата закрытия</span><span>{r.plannedCloseDate ? new Date(r.plannedCloseDate).toLocaleDateString('ru-RU') : 'Не указано'}</span></div>
                 </div>
 

@@ -7,6 +7,13 @@ import Link from 'next/link';
 import { AppShell, Button, Card, Icon, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import clsx from 'clsx';
+import {
+  CHECK_STATUS_LABELS,
+  CHECK_TYPE_LABELS,
+  JOB_BOARD_LABELS,
+  OFFER_STATUS_LABELS,
+  ruLabel,
+} from '@skillaz/shared';
 
 const STATUS_FORMS = [
   { id: 'phone', label: 'Телефонное интервью', fields: ['result', 'comment'] },
@@ -259,11 +266,7 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => score.mutate()} disabled={score.isPending}>AI скоринг</Button>
               <Button variant="ghost" onClick={() => hints.mutate()} disabled={hints.isPending}>AI подсказки</Button>
             </div>
-            {aiBox ? (
-              <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13 }}>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{JSON.stringify(aiBox, null, 2)}</pre>
-              </div>
-            ) : null}
+            {aiBox ? <AiResult data={aiBox} onClose={() => setAiBox(null)} /> : null}
           </Card>
 
           <Card style={{ overflow: 'hidden' }}>
@@ -326,7 +329,7 @@ function CandidateDetailInner() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(c.checks || []).map((ch: any) => (
                     <div key={ch.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0' }}>
-                      <span>{ch.type}</span><span style={{ fontWeight: 500 }}>{ch.status}</span>
+                      <span>{ruLabel(CHECK_TYPE_LABELS, ch.type)}</span><span style={{ fontWeight: 500 }}>{ruLabel(CHECK_STATUS_LABELS, ch.status)}</span>
                     </div>
                   ))}
                   <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
@@ -340,7 +343,7 @@ function CandidateDetailInner() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(c.offers || []).map((o: any) => (
                     <div key={o.id} style={{ fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{o.position} · {o.salary?.toLocaleString('ru-RU')} ₽</span><span>{o.status}</span>
+                      <span>{o.position} · {o.salary?.toLocaleString('ru-RU')} ₽</span><span>{ruLabel(OFFER_STATUS_LABELS, o.status)}</span>
                     </div>
                   ))}
                   <Button onClick={() => createOffer.mutate()}>Создать оффер</Button>
@@ -357,7 +360,7 @@ function CandidateDetailInner() {
               {tab === 'responses' && (
                 <div style={{ fontSize: 14, color: 'var(--sk-muted)' }}>
                   {(c.responses || []).length
-                    ? (c.responses || []).map((r: any) => <div key={r.id}>{r.board} · {new Date(r.receivedAt).toLocaleString('ru-RU')}</div>)
+                    ? (c.responses || []).map((r: any) => <div key={r.id}>{ruLabel(JOB_BOARD_LABELS, r.board)} · {new Date(r.receivedAt).toLocaleString('ru-RU')}</div>)
                     : 'Откликов нет'}
                 </div>
               )}
@@ -387,7 +390,7 @@ function CandidateDetailInner() {
                 <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                   {(c.checks || []).map((ch: any) => (
                     <li key={ch.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span>{ch.type}</span><span style={{ color: 'var(--sk-muted)' }}>{ch.status}</span>
+                      <span>{ruLabel(CHECK_TYPE_LABELS, ch.type)}</span><span style={{ color: 'var(--sk-muted)' }}>{ruLabel(CHECK_STATUS_LABELS, ch.status)}</span>
                     </li>
                   ))}
                 </ul>
@@ -449,6 +452,40 @@ function CandidateDetailInner() {
         </div>
       </Modal>
     </AppShell>
+  );
+}
+
+function AiResult({ data, onClose }: { data: any; onClose: () => void }) {
+  const hints: string[] = Array.isArray(data.hints) ? data.hints : [];
+  const risks: string[] = Array.isArray(data.risks) ? data.risks : [];
+  const summary = data.data?.summary || data.summary;
+  return (
+    <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <strong>{hints.length ? 'AI подсказки для интервью' : 'AI скоринг'}</strong>
+        <button type="button" className="sk-link" onClick={onClose} style={{ fontSize: 12 }}>Скрыть</button>
+      </div>
+      {data.stub ? (
+        <div style={{ color: 'var(--sk-muted)', fontSize: 12, marginBottom: 6 }}>
+          Демо-режим: AI-провайдер не подключён (AI_BASE_URL / AI_API_KEY), показан эвристический результат.
+        </div>
+      ) : null}
+      {typeof data.score === 'number' && !hints.length ? (
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{data.score} / 100</div>
+      ) : null}
+      {data.rationale && !hints.length ? <div>{data.rationale}</div> : null}
+      {summary ? <div>{summary}</div> : null}
+      {hints.length ? (
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {hints.map((h, i) => <li key={i}>{h}</li>)}
+        </ul>
+      ) : null}
+      {risks.length && !hints.length ? (
+        <div style={{ marginTop: 6 }}>
+          <span style={{ color: '#b91c1c', fontWeight: 600 }}>Риски: </span>{risks.join('; ')}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

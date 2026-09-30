@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Button, Card, Empty, Icon, Input, Modal, Select } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import clsx from 'clsx';
+import { ASSIGNMENT_STATUS_LABELS, QUESTIONNAIRE_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
 export default function AssessmentsPage() {
   return (
@@ -90,7 +91,7 @@ function AssessmentsInner() {
             <Card key={q.id} className="p-5">
               <div className="text-[16px] font-bold">{q.name}</div>
               <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mt-3 text-[13px]">
-                <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40">Тип</span><span>{q.type}</span></div>
+                <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40">Тип</span><span>{ruLabel(QUESTIONNAIRE_TYPE_LABELS, q.type)}</span></div>
                 <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40">Вопросов</span><span>{Array.isArray(q.schema?.questions) ? q.schema.questions.length : '—'}</span></div>
               </div>
             </Card>
@@ -120,7 +121,7 @@ function AssessmentsInner() {
             <Card key={a.id} className="p-4 flex flex-wrap justify-between gap-2 text-sm items-center">
               <div>
                 <div className="font-semibold">{a.candidate ? fullName(a.candidate) : '—'}</div>
-                <div className="text-[var(--sk-muted)] text-xs">{a.questionnaire?.name} · {a.status}</div>
+                <div className="text-[var(--sk-muted)] text-xs">{a.questionnaire?.name} · {ruLabel(ASSIGNMENT_STATUS_LABELS, a.status)}</div>
               </div>
               {a.externalToken ? (
                 <a className="sk-link text-xs" href={`/public/assessment/${a.externalToken}`} target="_blank" rel="noreferrer">

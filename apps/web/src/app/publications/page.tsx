@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
 import clsx from 'clsx';
+import { JOB_BOARD_LABELS, PUBLICATION_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 
 const BOARDS = ['HH', 'SUPERJOB', 'AVITO', 'ZARPLATA', 'RABOTA', 'TRUDVSEM'];
 
@@ -19,8 +20,8 @@ export default function PublicationsPage() {
 
 function PublicationsInner() {
   const sp = useSearchParams();
-  const [tab, setTab] = useState<'list' | 'templates' | 'search'>(
-    sp.get('tab') === 'templates' ? 'templates' : sp.get('tab') === 'search' ? 'search' : 'list',
+  const [tab, setTab] = useState<'list' | 'templates' | 'search' | 'auto'>(
+    sp.get('tab') === 'templates' ? 'templates' : sp.get('tab') === 'search' ? 'search' : sp.get('tab') === 'auto' ? 'auto' : 'list',
   );
   const qc = useQueryClient();
   const [vacancyId, setVacancyId] = useState('');
@@ -40,6 +41,35 @@ function PublicationsInner() {
     () => (templates.data || []).filter((t: any) => t.isActive && (!board || t.board === board || t.board === 'HH')),
     [templates.data, board],
   );
+
+  const [autoForm, setAutoForm] = useState({ vacancyId: '', board: 'HH', intervalHours: '24', regionHint: '', templateId: '' });
+  const autoRules = useQuery({
+    queryKey: ['auto-rules'],
+    queryFn: () => api<any[]>('/publications/auto-rules'),
+    enabled: tab === 'auto',
+  });
+  const createAuto = useMutation({
+    mutationFn: () =>
+      api('/publications/auto-rules', {
+        method: 'POST',
+        body: JSON.stringify({
+          vacancyId: autoForm.vacancyId,
+          board: autoForm.board,
+          intervalHours: Number(autoForm.intervalHours) || 24,
+          regionHint: autoForm.regionHint || undefined,
+          templateId: autoForm.templateId || undefined,
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['auto-rules'] }),
+  });
+  const runAuto = useMutation({
+    mutationFn: () => api('/publications/auto-run/now', { method: 'POST' }),
+  });
+  const toggleAuto = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      api(`/publications/auto-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['auto-rules'] }),
+  });
 
   const search = useMutation({
     mutationFn: () => api('/job-boards/search', { method: 'POST', body: JSON.stringify({ board, text: 'инженер' }) }),
@@ -112,16 +142,73 @@ function PublicationsInner() {
       <div className="flex border-b border-[var(--sk-line)] mb-4">
         <button className={clsx('sk-tab', tab === 'list' && 'active')} onClick={() => setTab('list')}>Аккаунты / публикации</button>
         <button className={clsx('sk-tab', tab === 'templates' && 'active')} onClick={() => setTab('templates')}>Шаблоны</button>
+        <button className={clsx('sk-tab', tab === 'auto' && 'active')} onClick={() => setTab('auto')}>Авторазмещения</button>
         <button className={clsx('sk-tab', tab === 'search' && 'active')} onClick={() => setTab('search')}>Автопоиски</button>
       </div>
 
-      {tab === 'search' ? (
+      {tab === 'auto' ? (
+        <div className="space-y-4">
+          <Card className="p-4 grid md:grid-cols-5 gap-3 items-end">
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Вакансия</div>
+              <Select value={autoForm.vacancyId} onChange={(e) => setAutoForm({ ...autoForm, vacancyId: e.target.value })}>
+                <option value="">Выберите</option>
+                {(vacancies.data?.items || []).map((v: any) => (
+                  <option key={v.id} value={v.id}>{v.title}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Площадка</div>
+              <Select value={autoForm.board} onChange={(e) => setAutoForm({ ...autoForm, board: e.target.value })}>
+                {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
+              </Select>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Интервал (ч)</div>
+              <Input value={autoForm.intervalHours} onChange={(e) => setAutoForm({ ...autoForm, intervalHours: e.target.value })} />
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Регион (подсказка)</div>
+              <Input value={autoForm.regionHint} onChange={(e) => setAutoForm({ ...autoForm, regionHint: e.target.value })} placeholder="из города вакансии" />
+            </div>
+            <div className="flex gap-2">
+              <Button disabled={!autoForm.vacancyId || createAuto.isPending} onClick={() => createAuto.mutate()}>Добавить</Button>
+              <Button variant="ghost" onClick={() => runAuto.mutate()} disabled={runAuto.isPending}>Запустить сейчас</Button>
+            </div>
+          </Card>
+          {runAuto.data ? (
+            <Card className="p-3 text-xs"><pre className="overflow-auto">{JSON.stringify(runAuto.data, null, 2)}</pre></Card>
+          ) : null}
+          <Card className="divide-y divide-[var(--line)]">
+            {(autoRules.data || []).map((r: any) => (
+              <div key={r.id} className="px-4 py-3 flex justify-between gap-3 text-sm items-start">
+                <div>
+                  <div className="font-semibold">{r.vacancy?.title} · {ruLabel(JOB_BOARD_LABELS, r.board)}</div>
+                  <div className="text-xs text-[var(--muted)] mt-1">
+                    каждые {r.intervalHours} ч · регион: {r.regionHint || '—'} · next: {r.nextRunAt ? new Date(r.nextRunAt).toLocaleString('ru-RU') : '—'}
+                    {r.lastError ? ` · err: ${r.lastError}` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge color={r.isActive ? 'green' : 'amber'}>{r.isActive ? 'активно' : 'выкл'}</Badge>
+                  <Button variant="ghost" onClick={() => toggleAuto.mutate({ id: r.id, isActive: !r.isActive })}>
+                    {r.isActive ? 'Выкл.' : 'Вкл.'}
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {!autoRules.isLoading && !(autoRules.data || []).length ? <Empty text="Правил авторазмещения нет" /> : null}
+          </Card>
+          <p className="text-xs text-[var(--muted)]">Worker гоняет due-правила каждые 5 минут (`POST /publications/auto-run`). Без ключей борда публикация останется MOCKED.</p>
+        </div>
+      ) : tab === 'search' ? (
         <Card className="p-4 space-y-3">
           <div className="grid md:grid-cols-3 gap-3 items-end">
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Площадка</div>
               <Select value={board} onChange={(e) => setBoard(e.target.value)}>
-                {BOARDS.map((b) => <option key={b} value={b}>{b}</option>)}
+                {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
               </Select>
             </div>
             <Button onClick={() => search.mutate()} disabled={search.isPending}>Запустить автопоиск</Button>
@@ -142,7 +229,7 @@ function PublicationsInner() {
                 <div key={t.id} className="px-4 py-3 text-sm flex justify-between gap-3 items-start">
                   <div>
                     <div className="font-semibold">{t.name}</div>
-                    <div className="text-xs text-[var(--muted)] mt-1">{t.board} · {String(preview).slice(0, 120)}</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">{ruLabel(JOB_BOARD_LABELS, t.board)} · {String(preview).slice(0, 120)}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge color={t.isActive ? 'green' : 'amber'}>{t.isActive ? 'активен' : 'выкл'}</Badge>
@@ -176,7 +263,7 @@ function PublicationsInner() {
               <div className="text-xs text-[var(--muted)] mb-1">Площадка</div>
               <Select value={board} onChange={(e) => { setBoard(e.target.value); setTemplateId(''); }}>
                 {BOARDS.map((b) => (
-                  <option key={b} value={b}>{b}</option>
+                  <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>
                 ))}
               </Select>
             </div>
@@ -202,9 +289,9 @@ function PublicationsInner() {
               <div key={p.id} className="px-4 py-3 flex justify-between text-sm">
                 <div>
                   <div className="font-semibold">{p.vacancy?.title}</div>
-                  <div className="text-xs text-[var(--muted)]">{p.board} · {p.url || p.externalId || '—'}</div>
+                  <div className="text-xs text-[var(--muted)]">{ruLabel(JOB_BOARD_LABELS, p.board)} · {p.url || p.externalId || '—'}</div>
                 </div>
-                <Badge color={p.status === 'PUBLISHED' ? 'green' : p.status === 'FAILED' ? 'rose' : 'amber'}>{p.status}</Badge>
+                <Badge color={p.status === 'PUBLISHED' ? 'green' : p.status === 'FAILED' ? 'rose' : 'amber'}>{ruLabel(PUBLICATION_STATUS_LABELS, p.status)}</Badge>
               </div>
             ))}
             {!pubs.isLoading && !pubs.data?.length ? <Empty text="Публикаций нет" /> : null}
@@ -216,7 +303,7 @@ function PublicationsInner() {
         <div className="space-y-3">
           <Input placeholder="Название" value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
           <Select value={tplForm.board} onChange={(e) => setTplForm({ ...tplForm, board: e.target.value })}>
-            {BOARDS.map((b) => <option key={b} value={b}>{b}</option>)}
+            {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
           </Select>
           <Input placeholder="Заголовок вакансии (опц.)" value={tplForm.title} onChange={(e) => setTplForm({ ...tplForm, title: e.target.value })} />
           <Textarea placeholder="Описание (опц.)" value={tplForm.description} onChange={(e) => setTplForm({ ...tplForm, description: e.target.value })} />

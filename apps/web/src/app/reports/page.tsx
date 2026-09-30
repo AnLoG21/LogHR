@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { AppShell, Card } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
+import { JOB_BOARD_LABELS, ruLabel } from '@skillaz/shared';
 
 export default function ReportsPage() {
   const funnel = useQuery({ queryKey: ['rep-funnel'], queryFn: () => api<any>('/reports/funnel') });
@@ -32,7 +33,7 @@ export default function ReportsPage() {
           <div className="space-y-2">
             {(sources.data?.sources || []).map((r: any) => (
               <div key={r.source} className="flex justify-between text-sm">
-                <span>{r.source}</span>
+                <span>{ruLabel(JOB_BOARD_LABELS, r.source, 'Не указан')}</span>
                 <strong className="tabular-nums">{r.count}</strong>
               </div>
             ))}
