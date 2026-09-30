@@ -52,7 +52,7 @@ HH Chat: `GET/POST /api/integrations/hh-chat/:candidateId` — при `HH_CHAT_T
 | SJ / Avito / Zarplata | пусто → disabled | соответствующие `*_TOKEN` |
 | Почта | пусто → MOCKED в логах | `SMTP_HOST/USER/PASS/FROM` |
 | SMS / телефония | пусто | `SMS_*` / `TELEPHONY_API_KEY` |
-| AI | пусто → stub | `AI_BASE_URL` + `AI_API_KEY` (+ `AI_MODEL`) |
+| AI | пусто → stub | `AI_BASE_URL` + `AI_API_KEY` (+ `AI_MODEL`); резерв — `OPENROUTER_API_KEY` (+ `OPENROUTER_MODEL`) |
 | Файлы | `STORAGE_MODE=local` | `STORAGE_MODE=s3` + `S3_*` |
 | Очереди | Redis опционален | `REDIS_URL` (иначе «очередь offline») |
 | Отчёты | ссылка на Metabase | `METABASE_URL` + `npm run metabase:bootstrap` |

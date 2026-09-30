@@ -1,13 +1,16 @@
 {
-  email www.skillaz.local
+	email {$ACME_EMAIL:admin@localhost}
 }
 
-:80 {
-  encode gzip
-  handle_path /api* {
-    reverse_proxy api:3001
-  }
-  handle {
-    reverse_proxy web:3000
-  }
+{$DOMAIN:localhost} {
+	encode gzip
+	request_body /api/* {
+		max_size 50MB
+	}
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+	handle {
+		reverse_proxy web:3000
+	}
 }

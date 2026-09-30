@@ -467,8 +467,10 @@ function AiResult({ data, onClose }: { data: any; onClose: () => void }) {
       </div>
       {data.stub ? (
         <div style={{ color: 'var(--sk-muted)', fontSize: 12, marginBottom: 6 }}>
-          Демо-режим: AI-провайдер не подключён (AI_BASE_URL / AI_API_KEY), показан эвристический результат.
+          {data.note || 'Демо-режим: AI-провайдер не подключён (AI_* или OPENROUTER_API_KEY), показан эвристический результат.'}
         </div>
+      ) : String(data.provider || '').startsWith('openrouter') ? (
+        <div style={{ color: 'var(--sk-muted)', fontSize: 12, marginBottom: 6 }}>Ответ через OpenRouter (резервный провайдер)</div>
       ) : null}
       {typeof data.score === 'number' && !hints.length ? (
         <div style={{ fontSize: 20, fontWeight: 700 }}>{data.score} / 100</div>

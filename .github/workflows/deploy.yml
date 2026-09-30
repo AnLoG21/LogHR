@@ -1,0 +1,129 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @skillaz/shared
+      - run: npm run prisma:generate -w @skillaz/api
+      - run: npm run build -w @skillaz/api
+      - run: npx tsc --noEmit -p apps/web
+      - name: Deploy status
+        if: vars.PUBLIC_URL == ''
+        run: echo "::notice::PUBLIC_URL variable is not set — only checks ran. See docs/DEPLOY.md to enable image build and deploy."
+
+  images:
+    needs: check
+    if: vars.PUBLIC_URL != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        app: [api, web, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve image names
+        id: meta
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.PUBLIC_URL }}
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.owner }}/loghr-${{ matrix.app }}:${{ github.sha }}
+            ghcr.io/${{ steps.meta.outputs.owner }}/loghr-${{ matrix.app }}:latest
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      HAS_SERVER: ${{ secrets.DEPLOY_HOST != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when server is not configured
+        if: env.HAS_SERVER != 'true'
+        run: echo "::warning::DEPLOY_HOST secret is not set — images are built and pushed, deploy step skipped."
+      - name: Resolve owner
+        id: meta
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - name: Upload compose files
+        if: env.HAS_SERVER == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          source: deploy/docker-compose.prod.yml,deploy/Caddyfile
+          target: ${{ secrets.DEPLOY_PATH || '/opt/loghr' }}
+          strip_components: 1
+      - name: Pull images and restart
+        if: env.HAS_SERVER == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_OWNER: ${{ steps.meta.outputs.owner }}
+          IMAGE_TAG: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/loghr' }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          envs: GHCR_OWNER,IMAGE_TAG,GHCR_USER,GHCR_TOKEN,DEPLOY_PATH
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            cd "$DEPLOY_PATH"
+            test -f .env || { echo "Missing $DEPLOY_PATH/.env — copy deploy/.env.prod.example and fill it"; exit 1; }
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            export GHCR_OWNER IMAGE_TAG
+            printf 'GHCR_OWNER=%s\nIMAGE_TAG=%s\n' "$GHCR_OWNER" "$IMAGE_TAG" > .deploy.env
+            COMPOSE="docker compose --env-file .env --env-file .deploy.env -f docker-compose.prod.yml"
+            $COMPOSE pull migrate api worker web
+            $COMPOSE up -d --remove-orphans
+            for i in $(seq 1 30); do
+              if $COMPOSE exec -T api wget -qO- http://127.0.0.1:3001/api/health >/dev/null 2>&1; then
+                echo "API healthy"; break
+              fi
+              if [ "$i" = 30 ]; then
+                echo "API did not become healthy"; $COMPOSE logs --tail=100 migrate api; exit 1
+              fi
+              sleep 5
+            done
+            $COMPOSE logs --tail=20 migrate
+            docker logout ghcr.io
+            docker image prune -f

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public, Roles } from '../common/guards';
+import { aiProviders } from '../ai/ai.module';
 
 @Injectable()
 export class IntegrationsService {
@@ -33,7 +34,7 @@ export class IntegrationsService {
       PROACTION: !!process.env.PROACTION_WEBHOOK_SECRET,
       REDIS: redisOk,
       S3: process.env.STORAGE_MODE === 's3' && !!process.env.S3_ENDPOINT,
-      AI: !!(process.env.AI_API_KEY && process.env.AI_BASE_URL),
+      AI: aiProviders().length > 0,
       HH_CHAT: !!(process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN),
       DADATA: !!(process.env.DADATA_TOKEN || process.env.DADATA_API_KEY),
     };
@@ -42,6 +43,7 @@ export class IntegrationsService {
       let note = live ? 'live' : 'не настроено';
       if (r.code === 'REDIS' && !live) note = 'очередь offline';
       if (r.code === 'HH' && !live) note = 'mock (нет HH_ACCESS_TOKEN)';
+      if (r.code === 'AI' && live) note = `live: ${aiProviders().map((p) => p.name).join(' → ')}`;
       return {
         ...r,
         configured: r.configured || live,

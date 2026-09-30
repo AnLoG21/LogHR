@@ -145,7 +145,8 @@
 - [x] **DONE** — `npm run ci` build + smoke
 - [x] **DONE** — docs: README, ADMIN, UAT, OPENAPI-1C, metabase SQL, extension README
 - [x] **DONE** — Prod path: `docker compose --profile prod`, `migrate deploy`, **без seed** (документировано)
-- [~] **PARTIAL** — Первый ADMIN без seed: «SQL или bootstrap-admin» в README; **отдельного готового endpoint bootstrap-admin в коде не найден** — ручной SQL
+- [x] **DONE** — Первый ADMIN без seed: `apps/api/prisma/init-prod.cjs` (справочники + ADMIN из `ADMIN_EMAIL`/`ADMIN_PASSWORD`), запускается автодеплоем
+- [x] **DONE** — Автодеплой: GitHub Actions → GHCR → SSH + docker compose ([DEPLOY.md](DEPLOY.md))
 - [~] **PARTIAL** — Базовые воронки/справочники на чистом проде нужно создать вручную в админке (seed их не разворачивает)
 
 ---

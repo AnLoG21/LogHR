@@ -33,6 +33,10 @@ npm run ci             # build + optional smoke
 
 ## Prod
 
+**Автодеплой:** пуш в `main` → GitHub Actions собирает образы и выкатывает на сервер. Настройка — [docs/DEPLOY.md](docs/DEPLOY.md).
+
+Ручной вариант (локальная сборка):
+
 ```bash
 docker compose --profile prod up -d --build
 npm run db:migrate:deploy -w @skillaz/api
@@ -43,7 +47,7 @@ npm run db:migrate:deploy -w @skillaz/api
 Минимальный чистый старт:
 1. Заполнить `.env` по таблице ниже (JWT, `DATABASE_URL`, при необходимости HH/SMTP/S3/Redis).
 2. Поднять infra + `migrate deploy` (только схема).
-3. Создать первого ADMIN вручную (SQL или UI после одноразового bootstrap-admin) и базовые воронки/справочники в админке.
+3. `ADMIN_EMAIL=... ADMIN_PASSWORD=... node prisma/init-prod.cjs` (в `apps/api`) — справочники, воронки, шаблоны писем и первый ADMIN без демо-данных. В автодеплое выполняется сам.
 4. Branding подтянется из `BRAND_NAME` при первом обращении к `/api/branding`.
 
 Local migrate: `npm run db:migrate` (`prisma db push`).  
@@ -66,7 +70,8 @@ Prod: только `prisma migrate deploy` — без seed.
 | `SUPERJOB_TOKEN` / `AVITO_TOKEN` / `ZARPLATA_TOKEN` | пусто → disabled | токены бордов |
 | `SMTP_*` | пусто → MOCKED | реальная почта |
 | `SMS_API_KEY` / `TELEPHONY_API_KEY` | опционально | при SMS/звонках |
-| `AI_BASE_URL` + `AI_API_KEY` | пусто → stub | LLM |
+| `AI_BASE_URL` + `AI_API_KEY` | пусто → stub | LLM (основной) |
+| `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` | пусто → stub | резерв, если основной не задан или упал |
 | `STORAGE_MODE` + `S3_*` | `local` | `s3` + бакет |
 | `REDIS_URL` | опционально | очереди worker |
 | `PROACTION_WEBHOOK_SECRET` / `HH_CHAT_TOKEN` | stub | боевые интеграции (HH Chat также принимает `HH_ACCESS_TOKEN`) |
