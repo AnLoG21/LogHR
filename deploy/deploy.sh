@@ -29,8 +29,21 @@ main() {
   if [ ! -f deploy/tls.caddy ]; then
     cp deploy/tls.caddy.example deploy/tls.caddy
   fi
-  mkdir -p deploy/certs
+  mkdir -p deploy/certs deploy/sites
+  local profiles
+  profiles="$(sed -n 's/^COMPOSE_PROFILES=//p' deploy/.env | tail -1)"
+  export COMPOSE_PROFILES="$profiles"
   local c="docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env"
+
+  if [[ ",$profiles," == *",bi,"* ]]; then
+    $c up -d --wait postgres
+    local pguser
+    pguser="$(sed -n 's/^POSTGRES_USER=//p' deploy/.env | tail -1)"
+    pguser="${pguser:-loghr}"
+    if ! $c exec -T postgres psql -U "$pguser" -d postgres -tAc "select 1 from pg_database where datname='metabase'" | grep -q 1; then
+      $c exec -T postgres createdb -U "$pguser" metabase
+    fi
+  fi
 
   # One at a time: small servers run out of memory building Next.js in parallel
   for svc in api worker web; do

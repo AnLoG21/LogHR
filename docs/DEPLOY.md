@@ -48,8 +48,18 @@ $C up -d                           # применить правки deploy/.env
 journalctl -u loghr-deploy -f      # логи автодеплоя
 systemctl list-timers loghr-deploy.timer
 deploy/deploy.sh --force           # пересобрать и перезапустить вручную
-$C --profile bi up -d metabase     # Metabase (по желанию)
 ```
+
+**Metabase (нужно ~1 ГБ RAM, сервер от 4 ГБ).** В `deploy/.env`: `COMPOSE_PROFILES=bi` и `METABASE_PUBLIC_URL=https://<домен>:3443`. Создайте `deploy/sites/metabase.caddy` (в `.gitignore`):
+
+```
+<домен>:3443 {
+	import /etc/caddy/tls.caddy
+	reverse_proxy metabase:3000
+}
+```
+
+Затем `deploy/deploy.sh --force`: создастся отдельная БД `metabase`, поднимется контейнер. Дашборд «LogHR ATS» заливается скриптом [`scripts/metabase-bootstrap.mjs`](../scripts/metabase-bootstrap.mjs) (`METABASE_URL=http://metabase:3000`, `METABASE_EMAIL`, `METABASE_PASSWORD`, `METABASE_DB_*`), например из одноразового `node:20-alpine` в сети `loghr_default`.
 
 **Пауза автодеплоя:** `systemctl stop loghr-deploy.timer`.
 

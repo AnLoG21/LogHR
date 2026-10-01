@@ -17,3 +17,6 @@
 		reverse_proxy web:3000
 	}
 }
+
+# Extra sites (e.g. Metabase on :3443), server-local and gitignored: deploy/sites/*.caddy
+import sites/*.caddy
