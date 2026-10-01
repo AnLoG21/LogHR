@@ -431,7 +431,7 @@ export function Modal({
             ×
           </button>
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflow: wide ? 'auto' : 'visible', padding: wide ? '0 20px 16px' : 0 }}>{children}</div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: wide ? '0 20px 16px' : 0 }}>{children}</div>
       </div>
     </div>,
     document.body,

@@ -161,7 +161,7 @@ export default function NotificationsPage() {
         </Card>
       </div>
 
-      <Modal open={!!edit} title={edit ? titleOf(edit) : ''} onClose={() => setEdit(null)}>
+      <Modal open={!!edit} title={edit ? titleOf(edit) : ''} onClose={() => setEdit(null)} maxWidth={640}>
         {edit ? (
           <div className="space-y-3">
             <TemplateComposer
