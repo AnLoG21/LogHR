@@ -320,8 +320,8 @@ function PublicationsInner() {
             <Button variant="ghost" onClick={() => search.mutate()}>Автопоиск</Button>
           </Card>
           {search.data ? (
-            <Card className="p-4 mb-4 text-sm">
-              <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(search.data, null, 2)}</pre>
+            <Card className="p-4 mb-4 text-sm text-[var(--muted)]">
+              Найдено: {(search.data as any).total ?? (search.data as any).items?.length ?? 'готово'}
             </Card>
           ) : null}
           <Card className="divide-y divide-[var(--line)]">
