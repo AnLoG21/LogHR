@@ -16,6 +16,8 @@ export class DashboardService {
       myTasks,
       offers,
       checks,
+      pendingApprovals,
+      closedRequests,
     ] = await Promise.all([
       this.prisma.candidate.count({ where: { isDepersonalized: false } }),
       this.prisma.vacancy.count({ where: { isActive: true } }),
@@ -25,12 +27,46 @@ export class DashboardService {
       this.prisma.task.count({ where: { assigneeId: user.id, status: 'OPEN' } }),
       this.prisma.offer.count({ where: { status: { in: ['DRAFT', 'PENDING_MANAGER', 'SENT_TO_CANDIDATE'] } } }),
       this.prisma.check.count({ where: { status: { in: ['NEW', 'IN_PROGRESS'] } } }),
+      this.prisma.check.count({
+        where: { type: 'FEEDBACK', status: { in: ['NEW', 'IN_PROGRESS'] } },
+      }),
+      this.prisma.hiringRequest.findMany({
+        where: { status: 'CLOSED' },
+        select: { createdAt: true, updatedAt: true },
+      }),
     ]);
+
+    const avgCloseDays = closedRequests.length
+      ? Math.round(
+          (closedRequests.reduce(
+            (s, r) => s + (r.updatedAt.getTime() - r.createdAt.getTime()) / 86400000,
+            0,
+          ) /
+            closedRequests.length) *
+            10,
+        ) / 10
+      : null;
 
     const recentCandidates = await this.prisma.candidate.findMany({
       take: 8,
       orderBy: { createdAt: 'desc' },
       include: { stage: true, vacancy: { select: { title: true } } },
+    });
+
+    const awaitingApproval = await this.prisma.check.findMany({
+      where: { type: 'FEEDBACK', status: { in: ['NEW', 'IN_PROGRESS'] } },
+      take: 8,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        candidate: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            vacancy: { select: { title: true } },
+          },
+        },
+      },
     });
 
     const funnelBreakdown = await this.prisma.candidate.groupBy({
@@ -39,8 +75,19 @@ export class DashboardService {
     });
 
     return {
-      counters: { candidates, vacancies, openRequests, myTasks, offers, checks },
+      counters: {
+        candidates,
+        vacancies,
+        openRequests,
+        myTasks,
+        offers,
+        checks,
+        pendingApprovals,
+        avgCloseDays,
+        closedRequests: closedRequests.length,
+      },
       recentCandidates,
+      awaitingApproval,
       funnelBreakdown,
     };
   }
