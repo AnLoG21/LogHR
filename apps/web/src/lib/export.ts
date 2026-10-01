@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export async function downloadXlsx(entity: string, filename?: string) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;

@@ -1,72 +1,57 @@
-# Автодеплой LogHR
+# Деплой и автодеплой LogHR
 
-Каждый пуш в `main` запускает [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml):
+Сервер сам себя обновляет. На нём лежит клон репозитория в `/opt/loghr`, systemd-таймер `loghr-deploy.timer` раз в 2 минуты проверяет `origin/main` и, если появился новый коммит, запускает [`deploy/deploy.sh`](../deploy/deploy.sh):
 
-1. **check** — сборка `shared` и API, проверка типов веба.
-2. **images** — сборка Docker-образов `loghr-api`, `loghr-web`, `loghr-worker` и публикация в GitHub Container Registry (`ghcr.io/anlog21/...`), теги `latest` и SHA коммита.
-3. **deploy** — по SSH копирует `deploy/docker-compose.prod.yml` и `deploy/Caddyfile` на сервер, скачивает новые образы и перезапускает стек.
+1. `git reset --hard origin/main`;
+2. сборка образов `api`, `worker`, `web` по очереди (на маленьком сервере параллельная сборка Next.js не помещается в память);
+3. `docker compose up -d`: сервис `migrate` выполняет `prisma migrate deploy` и `prisma/init-prod.cjs` (справочники, воронки, шаблоны писем, ПДн и первый ADMIN, если его ещё нет), затем стартуют API, worker, web и Caddy;
+4. проверка `/api/health`; при неудаче печатаются логи, а коммит не помечается как выкаченный, так что на следующем тике будет новая попытка.
 
-При каждом запуске сервис `migrate` выполняет `prisma migrate deploy` и `prisma/init-prod.cjs`: справочники (воронки, шаблоны писем, ПДн, источники, роли видимости) и первого администратора, если его ещё нет. Демо-данные (`db:seed`) на прод **не попадают**.
+Демо-данные (`db:seed`) на прод **не попадают**.
 
-Пока не задана переменная `PUBLIC_URL`, выполняется только **check**. Пока не задан секрет `DEPLOY_HOST`, образы собираются, а деплой пропускается.
+GitHub Actions ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)) проверяет сборку на каждый пуш и PR. Если сервер доступен из интернета и заданы секреты `DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY`, Actions дополнительно запускает `deploy.sh` по SSH сразу после проверки. Для серверов во внутренней сети (как `10.11.0.176`) хватает таймера.
 
-## Что нужно один раз
+## Первичная установка
 
-### 1. Сервер
-
-Ubuntu 22.04/24.04, от 2 vCPU / 4 GB RAM, открыты порты 22, 80, 443. На сервере от root:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/server-setup.sh | bash
-```
-
-Скрипт ставит Docker, создаёт пользователя `deploy`, папку `/opt/loghr` и `.env` из [`deploy/.env.prod.example`](../deploy/.env.prod.example) с уже сгенерированными паролями Postgres/MinIO, JWT и `WORKER_TOKEN`.
-
-Дальше в `/opt/loghr/.env` заполнить:
-- `DOMAIN`, `ACME_EMAIL` — HTTPS-сертификат Caddy получит сам;
-- `ADMIN_EMAIL`, `ADMIN_PASSWORD` (от 10 символов) — после первого входа пароль из `.env` удалить;
-- ключи интеграций по мере появления (SMTP, HH, DaData, AI…).
-
-DNS: A-запись домена на IP сервера.
-
-### 2. SSH-ключ для GitHub Actions
-
-На своём компьютере:
+Debian/Ubuntu, от 2 vCPU / 2 GB RAM (скрипт добавит 4 GB swap), открыты порты 22 и 80 (и 443 для домена). От root:
 
 ```bash
-ssh-keygen -t ed25519 -f loghr_deploy -N ""
+curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/server-setup.sh \
+  | PUBLIC_URL=http://10.11.0.176 bash
 ```
 
-Содержимое `loghr_deploy.pub` добавить на сервер в `/home/deploy/.ssh/authorized_keys`. Приватный `loghr_deploy` — в секрет `DEPLOY_SSH_KEY`.
+Для домена с HTTPS: `PUBLIC_URL=https://hr.example.ru SITE_ADDRESS=hr.example.ru` (A-запись домена на сервер, Caddy сам получит сертификат).
 
-### 3. Настройки репозитория
+Скрипт ставит Docker и git, включает swap, клонирует репозиторий и создаёт `deploy/.env` из [`deploy/.env.prod.example`](../deploy/.env.prod.example) с уже сгенерированными паролем Postgres, JWT и `WORKER_TOKEN`. Файлы кандидатов хранятся в Docker-volume `api_uploads`; для внешнего S3 задайте `STORAGE_MODE=s3` и `S3_*`.
 
-GitHub → Settings → Secrets and variables → Actions:
+Дальше:
 
-| Тип | Имя | Значение |
-|---|---|---|
-| Variable | `PUBLIC_URL` | `https://hr.example.ru` (тот же домен, что `DOMAIN`) |
-| Secret | `DEPLOY_HOST` | IP или домен сервера |
-| Secret | `DEPLOY_USER` | `deploy` |
-| Secret | `DEPLOY_SSH_KEY` | приватный ключ целиком |
-| Secret | `DEPLOY_PORT` | опционально, по умолчанию 22 |
-| Secret | `DEPLOY_PATH` | опционально, по умолчанию `/opt/loghr` |
+```bash
+cd /opt/loghr
+nano deploy/.env                       # ADMIN_EMAIL, ADMIN_PASSWORD (от 10 символов), ключи интеграций
+deploy/deploy.sh --force               # первый деплой (сборка 10–20 минут)
+systemctl enable --now loghr-deploy.timer
+```
 
-После этого — пуш в `main` или Actions → Build & Deploy → Run workflow.
+После первого входа удалите `ADMIN_PASSWORD` из `deploy/.env` — админ уже создан.
 
 ## Эксплуатация
 
-Команды на сервере из `/opt/loghr` (`.deploy.env` хранит тег текущего релиза):
-
 ```bash
-C="docker compose --env-file .env --env-file .deploy.env -f docker-compose.prod.yml"
-$C ps                      # статус
-$C logs -f api             # логи API
-$C restart api worker      # перезапуск после правки .env
-$C --profile bi up -d metabase   # Metabase (по желанию)
+cd /opt/loghr
+C="docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env"
+$C ps                              # статус контейнеров
+$C logs -f api                     # логи API
+$C up -d                           # применить правки deploy/.env
+journalctl -u loghr-deploy -f      # логи автодеплоя
+systemctl list-timers loghr-deploy.timer
+deploy/deploy.sh --force           # пересобрать и перезапустить вручную
+$C --profile bi up -d metabase     # Metabase (по желанию)
 ```
 
-**Откат:** Actions → старый успешный запуск → Re-run jobs (переразвернёт образы того коммита). Либо на сервере указать нужный SHA в `.deploy.env` и выполнить `$C up -d`.
+**Пауза автодеплоя:** `systemctl stop loghr-deploy.timer`.
+
+**Откат:** откатите коммит в `main` (`git revert`) и запушьте — сервер выкатит его сам. Срочно на сервере: `systemctl stop loghr-deploy.timer && git reset --hard <sha>`, затем `$C build api worker web && $C up -d`.
 
 **Бэкап БД:**
 
@@ -74,6 +59,6 @@ $C --profile bi up -d metabase   # Metabase (по желанию)
 $C exec -T postgres pg_dump -U loghr loghr | gzip > backup-$(date +%F).sql.gz
 ```
 
-## Если OpenRouter/AI недоступен из региона сервера
+## AI из региона сервера
 
-OpenRouter отвечает 403 с части IP. Задайте `AI_PROXY_URL=http://user:pass@proxy:port` в `.env` сервера или используйте основной провайдер `AI_BASE_URL`/`AI_API_KEY`, доступный из региона.
+OpenRouter отвечает 403 с части IP. Задайте `AI_PROXY_URL=http://user:pass@proxy:port` в `deploy/.env` или используйте основной провайдер `AI_BASE_URL`/`AI_API_KEY`, доступный из региона.

@@ -6,7 +6,8 @@ COPY packages/shared/package.json packages/shared/
 RUN npm ci --workspace=@skillaz/web --workspace=@skillaz/shared
 COPY packages/shared packages/shared
 COPY apps/web apps/web
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+# Empty = same-origin "/api" behind Caddy
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build -w @skillaz/shared && npm run build -w @skillaz/web

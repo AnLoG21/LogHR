@@ -1,17 +1,9 @@
-# Production stack pulled from GHCR by .github/workflows/deploy.yml.
-# Lives on the server next to .env and Caddyfile; only Caddy (80/443) is exposed.
+# Production stack built on the server from the git clone (deploy/deploy.sh). Settings: deploy/.env.
+# Memory limits fit a 2 GB server. Files are stored in the api_uploads volume; for external S3
+# set STORAGE_MODE=s3 and S3_* in deploy/.env. Only Caddy is exposed.
 name: loghr
 
-x-app-env: &app-env
-  DATABASE_URL: postgresql://${POSTGRES_USER:-loghr}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loghr}?schema=public
-  REDIS_URL: redis://redis:6379
-  S3_ENDPOINT: http://minio:9000
-  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-loghr}
-  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-  S3_BUCKET: ${S3_BUCKET:-loghr}
-  STORAGE_MODE: s3
-  WEB_URL: https://${DOMAIN:?set DOMAIN}
-  API_INTERNAL_URL: http://api:3001
+x-db-url: &db-url postgresql://${POSTGRES_USER:-loghr}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loghr}?schema=public
 
 services:
   postgres:
@@ -28,11 +20,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -40,42 +36,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-loghr}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
-      mc mb -p local/$${S3_BUCKET}"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-loghr}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      S3_BUCKET: ${S3_BUCKET:-loghr}
-    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 96M
 
   migrate:
-    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER}/loghr-api:${IMAGE_TAG:-latest}
+    image: loghr-api:latest
+    pull_policy: never
     env_file: .env
-    environment: *app-env
+    environment:
+      DATABASE_URL: *db-url
     command: ["sh", "-c", "npx prisma migrate deploy && node prisma/init-prod.cjs"]
     depends_on:
       postgres:
@@ -83,32 +54,65 @@ services:
     restart: "no"
 
   api:
-    image: ghcr.io/${GHCR_OWNER}/loghr-api:${IMAGE_TAG:-latest}
+    image: loghr-api:latest
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    pull_policy: build
     restart: unless-stopped
     env_file: .env
-    environment: *app-env
+    environment:
+      DATABASE_URL: *db-url
+      REDIS_URL: redis://redis:6379
+      WEB_URL: ${PUBLIC_URL:?set PUBLIC_URL}
+      NODE_OPTIONS: --max-old-space-size=384
+    volumes:
+      - api_uploads:/app/apps/api/uploads
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   worker:
-    image: ghcr.io/${GHCR_OWNER}/loghr-worker:${IMAGE_TAG:-latest}
+    image: loghr-worker:latest
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    pull_policy: build
     restart: unless-stopped
     env_file: .env
-    environment: *app-env
+    environment:
+      DATABASE_URL: *db-url
+      REDIS_URL: redis://redis:6379
+      API_INTERNAL_URL: http://api:3001
     depends_on:
       api:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 192M
 
   web:
-    image: ghcr.io/${GHCR_OWNER}/loghr-web:${IMAGE_TAG:-latest}
+    image: loghr-web:latest
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    pull_policy: build
     restart: unless-stopped
+    environment:
+      NODE_OPTIONS: --max-old-space-size=256
     depends_on:
       - api
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   caddy:
     image: caddy:2-alpine
@@ -117,7 +121,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN}
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -126,6 +130,10 @@ services:
     depends_on:
       - web
       - api
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   metabase:
     profiles: ["bi"]
@@ -145,6 +153,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  api_uploads:
   caddy_data:
   caddy_config:

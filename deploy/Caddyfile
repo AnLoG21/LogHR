@@ -2,7 +2,8 @@
 	email {$ACME_EMAIL:admin@localhost}
 }
 
-{$DOMAIN:localhost} {
+# SITE_ADDRESS: a domain (automatic HTTPS) or ":80" for plain HTTP by IP
+{$SITE_ADDRESS:localhost} {
 	encode gzip
 	request_body /api/* {
 		max_size 50MB

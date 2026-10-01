@@ -1,45 +1,72 @@
 #!/usr/bin/env bash
-# One-time server preparation (Ubuntu 22.04/24.04). Run as root:
-#   curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/server-setup.sh | bash
+# One-time server preparation (Debian/Ubuntu), run as root:
+#   curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/server-setup.sh | PUBLIC_URL=http://10.0.0.5 bash
+# PUBLIC_URL  — address users open (http://IP or https://domain)
+# SITE_ADDRESS — Caddy site: ":80" for HTTP by IP (default) or the bare domain for automatic HTTPS
 set -euo pipefail
 
-DEPLOY_USER="${DEPLOY_USER:-deploy}"
+REPO_URL="${REPO_URL:-https://github.com/AnLoG21/LogHR.git}"
 DEPLOY_PATH="${DEPLOY_PATH:-/opt/loghr}"
+PUBLIC_URL="${PUBLIC_URL:?set PUBLIC_URL, e.g. http://10.0.0.5 or https://hr.example.ru}"
+SITE_ADDRESS="${SITE_ADDRESS:-:80}"
+SWAP_SIZE="${SWAP_SIZE:-4G}"
 
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
+export DEBIAN_FRONTEND=noninteractive
+command -v git >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq git openssl curl; }
+command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
+
+if ! swapon --show | grep -q .; then
+  fallocate -l "$SWAP_SIZE" /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
-  useradd -m -s /bin/bash "$DEPLOY_USER"
+if [ ! -d "$DEPLOY_PATH/.git" ]; then
+  git clone -q "$REPO_URL" "$DEPLOY_PATH"
 fi
-usermod -aG docker "$DEPLOY_USER"
+cd "$DEPLOY_PATH"
+chmod +x deploy/deploy.sh
 
-mkdir -p "$DEPLOY_PATH" "/home/$DEPLOY_USER/.ssh"
-chown -R "$DEPLOY_USER:$DEPLOY_USER" "$DEPLOY_PATH" "/home/$DEPLOY_USER/.ssh"
-chmod 700 "/home/$DEPLOY_USER/.ssh"
-
-if [ ! -f "$DEPLOY_PATH/.env" ]; then
-  curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/.env.prod.example -o "$DEPLOY_PATH/.env"
-  for key in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET WORKER_TOKEN; do
-    sed -i "s|^$key=.*|$key=$(openssl rand -hex 32)|" "$DEPLOY_PATH/.env"
+if [ ! -f deploy/.env ]; then
+  cp deploy/.env.prod.example deploy/.env
+  for key in POSTGRES_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET WORKER_TOKEN; do
+    sed -i "s|^$key=.*|$key=$(openssl rand -hex 32)|" deploy/.env
   done
-  chown "$DEPLOY_USER:$DEPLOY_USER" "$DEPLOY_PATH/.env"
-  chmod 600 "$DEPLOY_PATH/.env"
+  sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=$PUBLIC_URL|; s|^SITE_ADDRESS=.*|SITE_ADDRESS=$SITE_ADDRESS|" deploy/.env
+  chmod 600 deploy/.env
 fi
 
-if command -v ufw >/dev/null 2>&1; then
-  ufw allow OpenSSH >/dev/null
-  ufw allow 80/tcp >/dev/null
-  ufw allow 443/tcp >/dev/null
-  ufw --force enable >/dev/null
-fi
+cat > /etc/systemd/system/loghr-deploy.service <<EOF
+[Unit]
+Description=LogHR pull-based deploy
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $DEPLOY_PATH/deploy/deploy.sh
+TimeoutStartSec=45min
+EOF
+
+cat > /etc/systemd/system/loghr-deploy.timer <<EOF
+[Unit]
+Description=Check GitHub for new LogHR commits
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable docker >/dev/null 2>&1 || true
 
 cat <<EOF
 
-Server is ready.
-1. Edit $DEPLOY_PATH/.env: DOMAIN, ACME_EMAIL, ADMIN_EMAIL, ADMIN_PASSWORD (+ SMTP/HH/AI keys when available).
-   Secrets (Postgres, MinIO, JWT, WORKER_TOKEN) are already generated.
-2. Add the GitHub Actions public key to /home/$DEPLOY_USER/.ssh/authorized_keys.
-3. Point the DOMAIN A-record to this server, then push to main (or run the workflow manually).
+Server is ready: $DEPLOY_PATH
+1. Set ADMIN_EMAIL and ADMIN_PASSWORD (min 10 chars) in $DEPLOY_PATH/deploy/.env, plus integration keys when available.
+2. First deploy: $DEPLOY_PATH/deploy/deploy.sh --force
+3. Enable auto-deploy: systemctl enable --now loghr-deploy.timer
+   Logs: journalctl -u loghr-deploy -f
 EOF

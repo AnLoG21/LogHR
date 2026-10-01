@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Button, Card, Textarea } from '@/components/ui';
 import { CHECK_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 async function publicApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}/api${path}`, {

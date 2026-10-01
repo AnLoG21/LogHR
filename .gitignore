@@ -3,6 +3,8 @@ dist
 .next
 .env
 .env.local
+deploy/.admin-once.txt
+deploy/_remote_prep.py
 *.log
 coverage
 .turbo
@@ -20,6 +22,11 @@ packages/shared/dist
 node_modules/
 
 
+deploy/.last-deployed
+deploy/.admin-once.txt
+deploy/_remote_*.py
+deploy/docker-compose.direct.yml
+deploy/Caddyfile.http
 test-results/
 apps/web/test-results/
 playwright-report/
