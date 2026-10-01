@@ -5,6 +5,10 @@ import { Providers } from './providers';
 export const metadata: Metadata = {
   title: 'LogHR — ATS',
   description: 'Система подбора персонала LogHR',
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/favicon.svg' }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
