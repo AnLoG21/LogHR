@@ -68,6 +68,15 @@ const EMAIL_TEMPLATES = [
   { code: 'REQUEST_CLOSED', subject: 'Заявка закрыта', body: '<p>Заявка {{title}} закрыта.</p>' },
 ];
 
+// Plain text for wa.me deep links: {{firstName}} {{vacancy}} {{city}} {{datetime}} {{recruiter}} {{company}}
+const WHATSAPP_TEMPLATES = [
+  { code: 'WA_FIRST_CONTACT', subject: 'Первый контакт', body: 'Здравствуйте, {{firstName}}! Меня зовут {{recruiter}}, {{company}}. Мы получили ваш отклик на вакансию «{{vacancy}}». Удобно обсудить детали?' },
+  { code: 'WA_INTERVIEW_INVITE', subject: 'Приглашение на собеседование', body: 'Здравствуйте, {{firstName}}! Приглашаем вас на собеседование по вакансии «{{vacancy}}» {{datetime}}. Подтвердите, пожалуйста, что вам удобно.' },
+  { code: 'WA_REMINDER', subject: 'Напоминание о встрече', body: '{{firstName}}, напоминаем о встрече {{datetime}} по вакансии «{{vacancy}}». Ждём вас!' },
+  { code: 'WA_DOCUMENTS', subject: 'Документы для оформления', body: '{{firstName}}, для оформления возьмите с собой: паспорт, СНИЛС, ИНН, трудовую книжку (если есть) и реквизиты банковской карты.' },
+  { code: 'WA_REJECT', subject: 'Отказ', body: '{{firstName}}, спасибо за интерес к вакансии «{{vacancy}}». К сожалению, сейчас мы не готовы продолжить. Желаем удачи в поиске!' },
+].map((t) => ({ ...t, channel: 'WHATSAPP' }));
+
 async function main() {
   const brand = process.env.BRAND_NAME || 'LogHR';
 
@@ -106,7 +115,7 @@ async function main() {
   for (const s of SOURCES) {
     await prisma.source.upsert({ where: { code: s.code }, update: {}, create: s });
   }
-  for (const t of EMAIL_TEMPLATES) {
+  for (const t of [...EMAIL_TEMPLATES, ...WHATSAPP_TEMPLATES]) {
     await prisma.notificationTemplate.upsert({ where: { code: t.code }, update: {}, create: t });
   }
   await prisma.pdnDocument.upsert({

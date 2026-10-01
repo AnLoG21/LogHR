@@ -347,7 +347,14 @@ async function main() {
     { code: 'REQUEST_PAUSED', subject: 'Заявка приостановлена', body: '<p>Заявка {{title}} приостановлена.</p>' },
     { code: 'REQUEST_CLOSED', subject: 'Заявка закрыта', body: '<p>Заявка {{title}} закрыта.</p>' },
   ];
-  for (const t of emailTemplates) {
+  const whatsappTemplates = [
+    { code: 'WA_FIRST_CONTACT', subject: 'Первый контакт', body: 'Здравствуйте, {{firstName}}! Меня зовут {{recruiter}}, {{company}}. Мы получили ваш отклик на вакансию «{{vacancy}}». Удобно обсудить детали?' },
+    { code: 'WA_INTERVIEW_INVITE', subject: 'Приглашение на собеседование', body: 'Здравствуйте, {{firstName}}! Приглашаем вас на собеседование по вакансии «{{vacancy}}» {{datetime}}. Подтвердите, пожалуйста, что вам удобно.' },
+    { code: 'WA_REMINDER', subject: 'Напоминание о встрече', body: '{{firstName}}, напоминаем о встрече {{datetime}} по вакансии «{{vacancy}}». Ждём вас!' },
+    { code: 'WA_DOCUMENTS', subject: 'Документы для оформления', body: '{{firstName}}, для оформления возьмите с собой: паспорт, СНИЛС, ИНН, трудовую книжку (если есть) и реквизиты банковской карты.' },
+    { code: 'WA_REJECT', subject: 'Отказ', body: '{{firstName}}, спасибо за интерес к вакансии «{{vacancy}}». К сожалению, сейчас мы не готовы продолжить. Желаем удачи в поиске!' },
+  ].map((t) => ({ ...t, channel: 'WHATSAPP' }));
+  for (const t of [...emailTemplates, ...whatsappTemplates]) {
     await prisma.notificationTemplate.upsert({
       where: { code: t.code },
       update: {},

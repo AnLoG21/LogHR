@@ -278,6 +278,9 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
               <Button variant="ghost" onClick={() => setTab('history')}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone}>Позвонить</Button>
+              <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
+                <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
+              </Button>
               <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
                 На согласование
               </Button>
@@ -408,6 +411,7 @@ function CandidateDetailInner() {
               )}
               {tab === 'messengers' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
+                  <WhatsappTemplatesBlock candidateId={id} hasPhone={Boolean(c.phone)} />
                   <a className="sk-link" href={messengers.data?.whatsapp} target="_blank" rel="noreferrer">WhatsApp WEB</a>
                   <a className="sk-link" href={messengers.data?.telegram} target="_blank" rel="noreferrer">Telegram WEB</a>
                   <a className="sk-link" href={messengers.data?.max} target="_blank" rel="noreferrer">MAX WEB</a>
@@ -581,6 +585,78 @@ function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: bo
           </button>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string; hasPhone: boolean }) {
+  const qc = useQueryClient();
+  const [code, setCode] = useState('');
+  const [text, setText] = useState('');
+  const [preview, setPreview] = useState<{ phone: string; url: string } | null>(null);
+  const templates = useQuery({
+    queryKey: ['notification-templates'],
+    queryFn: () => api<any[]>('/notifications/templates'),
+    staleTime: 5 * 60_000,
+  });
+  const waTemplates = (templates.data || []).filter((t) => t.channel === 'WHATSAPP' && t.isActive);
+  const render = useMutation({
+    mutationFn: (templateCode: string) =>
+      api<any>('/notifications/whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({ candidateId, templateCode, dryRun: true }),
+      }),
+    onSuccess: (res) => {
+      setText(res.text);
+      setPreview({ phone: res.phone, url: res.url });
+    },
+  });
+  const log = useMutation({
+    mutationFn: () =>
+      api('/notifications/whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({ candidateId, templateCode: code || undefined, text }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', candidateId] }),
+  });
+
+  if (!hasPhone) {
+    return <div style={{ fontSize: 13, color: 'var(--sk-muted)' }}>Укажите телефон кандидата, чтобы писать в WhatsApp.</div>;
+  }
+  const open = () => {
+    if (!preview || !text.trim()) return;
+    window.open(`https://wa.me/${preview.phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    log.mutate();
+  };
+
+  return (
+    <div style={{ padding: 12, background: '#f0fdf4', borderRadius: 8, display: 'grid', gap: 8 }}>
+      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="whatsapp" className="w-4 h-4" /> Написать по шаблону
+      </div>
+      <Select
+        value={code}
+        onChange={(e) => {
+          setCode(e.target.value);
+          if (e.target.value) render.mutate(e.target.value);
+        }}
+      >
+        <option value="">Выберите шаблон…</option>
+        {waTemplates.map((t) => <option key={t.id} value={t.code}>{t.subject}</option>)}
+      </Select>
+      {render.error ? <div style={{ fontSize: 12, color: '#b91c1c' }}>{(render.error as Error).message}</div> : null}
+      {preview ? (
+        <>
+          <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Button onClick={open} disabled={!text.trim()}>Открыть WhatsApp</Button>
+            <span style={{ fontSize: 12, color: 'var(--sk-muted)' }}>
+              +{preview.phone}. Текст подставится в чат, отправка — кнопкой в WhatsApp. Сообщение сохранится в истории.
+            </span>
+          </div>
+          {log.isSuccess ? <div style={{ fontSize: 12, color: '#15803d' }}>Записано в комментарии кандидата</div> : null}
+        </>
+      ) : null}
     </div>
   );
 }

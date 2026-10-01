@@ -1,9 +1,13 @@
-﻿import { Body, Controller, Get, Injectable, Module, Param, Patch, Post } from '@nestjs/common';
+﻿import {
+  BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, Patch, Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
+import { IsBoolean, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { Roles } from '../common/guards';
+import { CurrentUser } from '../common/current-user.decorator';
 import { createSmsAdapter, SmsPort } from './sms.adapter';
 
 @Injectable()
@@ -154,9 +158,76 @@ export class NotificationsService {
     };
   }
 
+  /** Russian numbers to wa.me format: 8XXXXXXXXXX / XXXXXXXXXX → 7XXXXXXXXXX. */
+  normalizePhone(phone?: string | null) {
+    let digits = (phone || '').replace(/\D/g, '');
+    if (digits.length === 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+    if (digits.length === 10) digits = `7${digits}`;
+    return digits.length >= 11 && digits.length <= 15 ? digits : null;
+  }
+
+  /**
+   * WhatsApp has no free sending API, so the recruiter sends via a wa.me deep link;
+   * dryRun renders the text, otherwise the send is logged on the candidate.
+   */
+  async whatsapp(
+    user: { id: string; firstName?: string; lastName?: string },
+    dto: { candidateId: string; templateCode?: string; text?: string; vars?: Record<string, string>; dryRun?: boolean },
+  ) {
+    const c = await this.prisma.candidate.findUnique({
+      where: { id: dto.candidateId },
+      select: {
+        id: true, firstName: true, lastName: true, middleName: true, phone: true, city: true,
+        meetingAt: true, vacancy: { select: { title: true, city: true } },
+      },
+    });
+    if (!c) throw new NotFoundException('Кандидат не найден');
+    const phone = this.normalizePhone(c.phone);
+    if (!phone) throw new BadRequestException('У кандидата нет корректного номера телефона');
+
+    let text = dto.text?.trim() || '';
+    if (!text) {
+      if (!dto.templateCode) throw new BadRequestException('Укажите шаблон или текст');
+      const tpl = await this.prisma.notificationTemplate.findUnique({ where: { code: dto.templateCode } });
+      if (!tpl || !tpl.isActive) throw new NotFoundException('Шаблон не найден');
+      const branding = await this.prisma.branding.findFirst();
+      text = this.render(tpl.body, {
+        name: [c.firstName, c.middleName].filter(Boolean).join(' '),
+        firstName: c.firstName,
+        lastName: c.lastName,
+        vacancy: c.vacancy?.title || '',
+        city: c.vacancy?.city || c.city || '',
+        datetime: c.meetingAt
+          ? c.meetingAt.toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Moscow' })
+          : '',
+        recruiter: [user.firstName, user.lastName].filter(Boolean).join(' '),
+        company: branding?.companyName || '',
+        ...(dto.vars || {}),
+      });
+    }
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+    if (!dto.dryRun) {
+      await this.prisma.notificationLog.create({
+        data: { channel: 'WHATSAPP', to: phone, subject: dto.templateCode || null, body: text, status: 'OPENED' },
+      });
+      await this.prisma.comment.create({
+        data: { candidateId: c.id, authorId: user.id, body: `WhatsApp: ${text}` },
+      });
+    }
+    return { phone, text, url };
+  }
+
   logs() {
     return this.prisma.notificationLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   }
+}
+
+class WhatsappDto {
+  @IsUUID() candidateId!: string;
+  @IsOptional() @IsString() templateCode?: string;
+  @IsOptional() @IsString() @MaxLength(2000) text?: string;
+  @IsOptional() @IsObject() vars?: Record<string, string>;
+  @IsOptional() @IsBoolean() dryRun?: boolean;
 }
 
 @ApiTags('notifications')
@@ -191,6 +262,11 @@ export class NotificationsController {
     },
   ) {
     return this.service.sendBulk(dto);
+  }
+
+  @Post('whatsapp')
+  whatsapp(@CurrentUser() user: any, @Body() dto: WhatsappDto) {
+    return this.service.whatsapp(user, dto);
   }
 
   @Post('sms')
