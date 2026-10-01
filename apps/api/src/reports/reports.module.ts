@@ -72,13 +72,14 @@ export class ReportsService {
       where: { status: 'CLOSED' },
       select: { id: true, title: true, createdAt: true, updatedAt: true },
     });
-    return {
-      name: 'Срок закрытия заявки',
-      rows: closed.map((r) => ({
-        ...r,
-        daysOpen: Math.round((r.updatedAt.getTime() - r.createdAt.getTime()) / 86400000),
-      })),
-    };
+    const rows = closed.map((r) => ({
+      ...r,
+      daysOpen: Math.round((r.updatedAt.getTime() - r.createdAt.getTime()) / 86400000),
+    }));
+    const avgDays = rows.length
+      ? Math.round((rows.reduce((s, r) => s + r.daysOpen, 0) / rows.length) * 10) / 10
+      : null;
+    return { name: 'Срок закрытия заявки', avgDays, rows };
   }
 
   async candidateProcessingTime() {
@@ -90,18 +91,66 @@ export class ReportsService {
     return { name: 'Сроки обработки кандидатов', rows: history };
   }
 
-  metabaseInfo() {
+  async summary() {
+    const [
+      candidates,
+      openRequests,
+      closedRequests,
+      vacancies,
+      offers,
+      funnel,
+      sources,
+      closeTime,
+      workload,
+    ] = await Promise.all([
+      this.prisma.candidate.count({ where: { isDepersonalized: false } }),
+      this.prisma.hiringRequest.count({ where: { status: { not: 'CLOSED' } } }),
+      this.prisma.hiringRequest.count({ where: { status: 'CLOSED' } }),
+      this.prisma.vacancy.count({ where: { isActive: true } }),
+      this.prisma.offer.count(),
+      this.funnelReport(),
+      this.sourcesReport(),
+      this.requestCloseTime(),
+      this.recruiterWorkload(),
+    ]);
+    const hiredApprox = (funnel.rows || [])
+      .filter((r: any) => /оформ|нанят|hired|offer|оффер/i.test(String(r.stageName || '')))
+      .reduce((s: number, r: any) => s + (r.count || 0), 0);
     return {
-      url: process.env.METABASE_URL || 'http://localhost:3002',
+      name: 'Сводка подбора',
+      kpis: {
+        candidates,
+        openRequests,
+        closedRequests,
+        activeVacancies: vacancies,
+        offers,
+        avgCloseDays: closeTime.avgDays,
+        conversionPct: candidates ? Math.round((hiredApprox / candidates) * 1000) / 10 : 0,
+      },
+      funnel: funnel.rows,
+      sources: sources.sources,
+      workload: workload.rows,
+      closeTime: closeTime.rows,
+    };
+  }
+
+  metabaseInfo() {
+    const url = process.env.METABASE_PUBLIC_URL || process.env.METABASE_URL || '';
+    const enabled = Boolean(url);
+    return {
+      url: url || null,
+      enabled,
       reports: [
         'Кандидаты на воронке подбора',
         'Эффективность каналов поиска',
         'Занятость рекрутера',
         'Реестр заявок',
-        'Срок закрытия заявки',
+        'Срок закрытия заявки (план/факт)',
         'Сроки обработки кандидатов',
       ],
-      note: 'Подключите Metabase к PostgreSQL (хост postgres, БД skillaz) и постройте дашборды по этим сущностям.',
+      note: enabled
+        ? 'Внешний BI (Metabase). SQL-шаблоны: docs/metabase-dashboards.sql'
+        : 'Metabase на этом стенде не запущен (профиль bi, ~1–2 ГБ RAM). Встроенные отчёты выше — основной дашборд. SQL для Metabase: docs/metabase-dashboards.sql',
     };
   }
 }
@@ -119,6 +168,7 @@ export class ReportsController {
   @Get('requests') requests() { return this.service.requestsRegistry(); }
   @Get('close-time') closeTime() { return this.service.requestCloseTime(); }
   @Get('processing-time') processing() { return this.service.candidateProcessingTime(); }
+  @Get('summary') summary() { return this.service.summary(); }
   @Get('metabase') metabase() { return this.service.metabaseInfo(); }
 }
 

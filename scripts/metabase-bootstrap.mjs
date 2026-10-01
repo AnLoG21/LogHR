@@ -24,9 +24,9 @@ const EMAIL = process.env.METABASE_EMAIL || 'admin@loghr.local';
 const PASSWORD = process.env.METABASE_PASSWORD || 'admin12345';
 const DB_HOST = process.env.METABASE_DB_HOST || 'postgres';
 const DB_PORT = Number(process.env.METABASE_DB_PORT || 5432);
-const DB_NAME = process.env.METABASE_DB_NAME || 'skillaz';
-const DB_USER = process.env.METABASE_DB_USER || 'skillaz';
-const DB_PASS = process.env.METABASE_DB_PASS || 'skillaz';
+const DB_NAME = process.env.METABASE_DB_NAME || process.env.POSTGRES_DB || 'loghr';
+const DB_USER = process.env.METABASE_DB_USER || process.env.POSTGRES_USER || 'loghr';
+const DB_PASS = process.env.METABASE_DB_PASS || process.env.POSTGRES_PASSWORD || 'loghr';
 
 const QUESTIONS = [
   {

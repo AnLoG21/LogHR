@@ -1,90 +1,169 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { AppShell, Card } from '@/components/ui';
+import Link from 'next/link';
+import { AppShell, Card, StatTile } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import { JOB_BOARD_LABELS, ruLabel } from '@skillaz/shared';
 
+function BarList({
+  rows,
+  labelKey,
+  valueKey,
+  formatLabel,
+}: {
+  rows: any[];
+  labelKey: string;
+  valueKey: string;
+  formatLabel?: (v: any, row: any) => string;
+}) {
+  const max = Math.max(1, ...rows.map((r) => Number(r[valueKey]) || 0));
+  return (
+    <div className="space-y-2.5">
+      {rows.map((r, i) => {
+        const value = Number(r[valueKey]) || 0;
+        const label = formatLabel ? formatLabel(r[labelKey], r) : String(r[labelKey] ?? '—');
+        return (
+          <div key={i}>
+            <div className="flex justify-between text-sm mb-1 gap-2">
+              <span className="truncate">{label}</span>
+              <strong className="tabular-nums shrink-0">{value}</strong>
+            </div>
+            <div style={{ height: 8, borderRadius: 4, background: 'var(--sk-line)' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.round((value / max) * 100)}%`,
+                  borderRadius: 4,
+                  background: 'linear-gradient(90deg, #14b8a6, #0f2744)',
+                  minWidth: value ? 4 : 0,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {!rows.length ? <div className="text-sm text-[var(--muted)]">Нет данных</div> : null}
+    </div>
+  );
+}
+
 export default function ReportsPage() {
-  const funnel = useQuery({ queryKey: ['rep-funnel'], queryFn: () => api<any>('/reports/funnel') });
-  const sources = useQuery({ queryKey: ['rep-sources'], queryFn: () => api<any>('/reports/sources') });
-  const workload = useQuery({ queryKey: ['rep-workload'], queryFn: () => api<any>('/reports/recruiter-workload') });
-  const requests = useQuery({ queryKey: ['rep-requests'], queryFn: () => api<any>('/reports/requests') });
-  const closeTime = useQuery({ queryKey: ['rep-close'], queryFn: () => api<any>('/reports/close-time') });
+  const summary = useQuery({ queryKey: ['rep-summary'], queryFn: () => api<any>('/reports/summary') });
   const processing = useQuery({ queryKey: ['rep-proc'], queryFn: () => api<any>('/reports/processing-time') });
+  const requests = useQuery({ queryKey: ['rep-requests'], queryFn: () => api<any>('/reports/requests') });
   const metabase = useQuery({ queryKey: ['rep-metabase'], queryFn: () => api<any>('/reports/metabase') });
 
+  const k = summary.data?.kpis || {};
+  const funnel = summary.data?.funnel || [];
+  const sources = summary.data?.sources || [];
+  const workload = summary.data?.workload || [];
+  const closeTime = summary.data?.closeTime || [];
+
   return (
-    <AppShell title="Отчёты" subtitle="Встроенная аналитика и Metabase BI">
+    <AppShell title="Отчёты" subtitle="Сводка подбора: воронка, каналы, сроки, нагрузка">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <StatTile label="Кандидаты" value={summary.isLoading ? '—' : k.candidates ?? 0} href="/candidates" />
+        <StatTile label="Открытые заявки" value={summary.isLoading ? '—' : k.openRequests ?? 0} href="/requests" />
+        <StatTile label="Закрытые заявки" value={summary.isLoading ? '—' : k.closedRequests ?? 0} />
+        <StatTile label="Активные вакансии" value={summary.isLoading ? '—' : k.activeVacancies ?? 0} href="/vacancies" />
+        <StatTile label="Ср. срок закрытия" value={summary.isLoading ? '—' : k.avgCloseDays != null ? `${k.avgCloseDays} дн.` : '—'} />
+        <StatTile label="Офферы" value={summary.isLoading ? '—' : k.offers ?? 0} href="/offers" />
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-4">
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">{funnel.data?.name || 'Воронка'}</div>
-          <div className="space-y-2">
-            {(funnel.data?.rows || []).map((r: any, i: number) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span>{r.stageName}</span>
-                <strong className="tabular-nums">{r.count}</strong>
-              </div>
-            ))}
-          </div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Воронка кандидатов</div>
+          <div className="text-xs text-[var(--muted)] mb-3">Сколько человек на каждом этапе</div>
+          <BarList rows={funnel} labelKey="stageName" valueKey="count" />
         </Card>
+
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">{sources.data?.name || 'Источники'}</div>
-          <div className="space-y-2">
-            {(sources.data?.sources || []).map((r: any) => (
-              <div key={r.source} className="flex justify-between text-sm">
-                <span>{ruLabel(JOB_BOARD_LABELS, r.source, 'Не указан')}</span>
-                <strong className="tabular-nums">{r.count}</strong>
-              </div>
-            ))}
-          </div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Источники</div>
+          <div className="text-xs text-[var(--muted)] mb-3">Откуда приходят кандидаты</div>
+          <BarList
+            rows={sources}
+            labelKey="source"
+            valueKey="count"
+            formatLabel={(v) => ruLabel(JOB_BOARD_LABELS, v, 'Не указан')}
+          />
         </Card>
+
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">{workload.data?.name || 'Занятость'}</div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Нагрузка рекрутеров</div>
+          <div className="text-xs text-[var(--muted)] mb-3">Заявки и задачи в работе</div>
           <div className="space-y-2">
-            {(workload.data?.rows || []).map((r: any) => (
-              <div key={r.id} className="flex justify-between text-sm gap-3">
+            {workload.map((r: any) => (
+              <div key={r.id} className="flex justify-between text-sm gap-3 border-b border-[var(--line)] pb-2">
                 <span>{r.lastName} {r.firstName}</span>
-                <span className="text-[var(--muted)] text-xs">заявок {r._count.hiringRequestsRecruited} · задач {r._count.assignedTasks}</span>
+                <span className="text-[var(--muted)] text-xs shrink-0">
+                  заявок {r._count?.hiringRequestsRecruited ?? 0} · задач {r._count?.assignedTasks ?? 0}
+                </span>
               </div>
             ))}
+            {!workload.length ? <div className="text-sm text-[var(--muted)]">Нет активных рекрутеров</div> : null}
           </div>
         </Card>
+
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">{closeTime.data?.name || 'Срок закрытия заявки'}</div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Срок закрытия заявок</div>
+          <div className="text-xs text-[var(--muted)] mb-3">
+            {k.avgCloseDays != null ? `Среднее: ${k.avgCloseDays} дн.` : 'Пока нет закрытых заявок — средний срок появится после первых CLOSED'}
+          </div>
           <div className="space-y-2 max-h-56 overflow-auto">
-            {(closeTime.data?.rows || []).map((r: any) => (
+            {closeTime.map((r: any) => (
               <div key={r.id} className="flex justify-between text-sm gap-3">
                 <span className="truncate">{r.title}</span>
                 <strong className="tabular-nums shrink-0">{r.daysOpen} дн.</strong>
               </div>
             ))}
-            {!closeTime.data?.rows?.length ? <div className="text-sm text-[var(--muted)]">Закрытых заявок пока нет</div> : null}
+            {!closeTime.length ? <div className="text-sm text-[var(--muted)]">Закрытых заявок пока нет</div> : null}
           </div>
         </Card>
+
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">{processing.data?.name || 'Сроки обработки'}</div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Последние смены этапов</div>
+          <div className="text-xs text-[var(--muted)] mb-3">История обработки кандидатов</div>
           <div className="space-y-2 max-h-56 overflow-auto text-sm">
-            {(processing.data?.rows || []).slice(0, 30).map((r: any) => (
+            {(processing.data?.rows || []).slice(-30).reverse().map((r: any) => (
               <div key={r.id} className="flex justify-between gap-2 border-b border-[var(--line)] pb-1">
-                <span>{r.candidate ? fullName(r.candidate) : '—'} → {r.stage?.name || '—'}</span>
+                <span>
+                  {r.candidate ? (
+                    <Link href={`/candidates/${r.candidate.id}`} className="sk-link">{fullName(r.candidate)}</Link>
+                  ) : '—'}
+                  {' → '}{r.stage?.name || '—'}
+                </span>
                 <span className="text-[var(--muted)] text-xs shrink-0">{new Date(r.createdAt).toLocaleDateString('ru-RU')}</span>
               </div>
             ))}
             {!processing.data?.rows?.length ? <div className="text-[var(--muted)]">Истории статусов пока нет</div> : null}
           </div>
         </Card>
+
         <Card className="p-4">
-          <div className="font-bold text-[var(--brand-primary)] mb-3">Metabase BI</div>
-          <p className="text-sm text-[var(--muted)] mb-2">{metabase.data?.note}</p>
-          <a className="text-[var(--brand-secondary)] underline text-sm" href={metabase.data?.url || 'http://localhost:3002'} target="_blank" rel="noreferrer">
-            Открыть Metabase
-          </a>
-          <ul className="mt-3 text-sm list-disc pl-5 space-y-1">
-            {(metabase.data?.reports || []).map((r: string) => <li key={r}>{r}</li>)}
-          </ul>
-          <div className="mt-3 text-xs text-[var(--muted)]">Реестр заявок: {requests.data?.rows?.length ?? 0}</div>
-          <div className="mt-2 text-xs text-[var(--muted)]">SQL-шаблоны: docs/metabase-dashboards.sql</div>
+          <div className="font-bold text-[var(--brand-primary)] mb-1">Реестр заявок</div>
+          <div className="text-xs text-[var(--muted)] mb-3">Всего в выборке: {requests.data?.rows?.length ?? 0}</div>
+          <div className="space-y-2 max-h-56 overflow-auto text-sm">
+            {(requests.data?.rows || []).slice(0, 20).map((r: any) => (
+              <div key={r.id} className="flex justify-between gap-2 border-b border-[var(--line)] pb-1">
+                <Link href={`/requests/${r.id}`} className="sk-link truncate">{r.title}</Link>
+                <span className="text-xs text-[var(--muted)] shrink-0">{r.status}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-[var(--line)]">
+            <div className="font-medium text-sm mb-1">Metabase BI</div>
+            <p className="text-xs text-[var(--muted)] mb-2">{metabase.data?.note}</p>
+            {metabase.data?.url ? (
+              <a className="text-[var(--brand-secondary)] underline text-sm" href={metabase.data.url} target="_blank" rel="noreferrer">
+                Открыть Metabase
+              </a>
+            ) : (
+              <div className="text-xs text-[var(--muted)]">
+                Чтобы включить: <code>docker compose --profile bi up -d metabase</code> на сервере с запасом RAM, затем <code>METABASE_PUBLIC_URL</code> в .env
+              </div>
+            )}
+          </div>
         </Card>
       </div>
     </AppShell>
