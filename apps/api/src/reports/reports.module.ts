@@ -1,8 +1,19 @@
-import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Injectable,
+  Module,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { Roles } from '../common/guards';
+import { CurrentUser } from '../common/current-user.decorator';
+import { AuthUser, Roles } from '../common/guards';
+
+type MbUser = { id: number; email: string; is_superuser?: boolean };
 
 @Injectable()
 export class ReportsService {
@@ -79,53 +90,46 @@ export class ReportsService {
     const avgDays = rows.length
       ? Math.round((rows.reduce((s, r) => s + r.daysOpen, 0) / rows.length) * 10) / 10
       : null;
-    return { name: 'Срок закрытия заявки', avgDays, rows };
+    return { name: 'Срок закрытия заявки', rows, avgDays };
   }
 
   async candidateProcessingTime() {
     const history = await this.prisma.candidateStatusHistory.findMany({
-      orderBy: { createdAt: 'asc' },
-      take: 1000,
-      include: { stage: true, candidate: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        candidate: { select: { id: true, firstName: true, lastName: true } },
+        stage: { select: { name: true } },
+      },
     });
     return { name: 'Сроки обработки кандидатов', rows: history };
   }
 
   async summary() {
-    const [
-      candidates,
-      openRequests,
-      closedRequests,
-      vacancies,
-      offers,
-      funnel,
-      sources,
-      closeTime,
-      workload,
-    ] = await Promise.all([
-      this.prisma.candidate.count({ where: { isDepersonalized: false } }),
-      this.prisma.hiringRequest.count({ where: { status: { not: 'CLOSED' } } }),
-      this.prisma.hiringRequest.count({ where: { status: 'CLOSED' } }),
-      this.prisma.vacancy.count({ where: { isActive: true } }),
-      this.prisma.offer.count(),
-      this.funnelReport(),
-      this.sourcesReport(),
-      this.requestCloseTime(),
-      this.recruiterWorkload(),
-    ]);
-    const hiredApprox = (funnel.rows || [])
-      .filter((r: any) => /оформ|нанят|hired|offer|оффер/i.test(String(r.stageName || '')))
-      .reduce((s: number, r: any) => s + (r.count || 0), 0);
+    const [candidates, openRequests, closedRequests, activeVacancies, offers, closeTime, funnel, sources, workload] =
+      await Promise.all([
+        this.prisma.candidate.count({ where: { isDepersonalized: false } }),
+        this.prisma.hiringRequest.count({ where: { status: { in: ['NEW', 'IN_PROGRESS', 'APPROVED_HR_BP', 'PENDING_HR_BP'] } } }),
+        this.prisma.hiringRequest.count({ where: { status: 'CLOSED' } }),
+        this.prisma.vacancy.count({ where: { isActive: true } }),
+        this.prisma.offer.count(),
+        this.requestCloseTime(),
+        this.funnelReport(),
+        this.sourcesReport(),
+        this.recruiterWorkload(),
+      ]);
+    const conversionPct = candidates
+      ? Math.round((offers / candidates) * 1000) / 10
+      : 0;
     return {
-      name: 'Сводка подбора',
       kpis: {
         candidates,
         openRequests,
         closedRequests,
-        activeVacancies: vacancies,
+        activeVacancies,
         offers,
         avgCloseDays: closeTime.avgDays,
-        conversionPct: candidates ? Math.round((hiredApprox / candidates) * 1000) / 10 : 0,
+        conversionPct,
       },
       funnel: funnel.rows,
       sources: sources.sources,
@@ -134,13 +138,18 @@ export class ReportsService {
     };
   }
 
-  metabaseInfo() {
-    // Only a browser-reachable URL — never METABASE_URL (docker-internal) or localhost fallback.
+  metabasePublicUrl() {
     const raw = (process.env.METABASE_PUBLIC_URL || '').trim();
-    const url = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw) ? raw : null;
+    if (!/^https?:\/\//i.test(raw) || /localhost|127\.0\.0\.1/i.test(raw)) return null;
+    return raw.replace(/\/$/, '');
+  }
+
+  metabaseInfo() {
+    const url = this.metabasePublicUrl();
     return {
       url,
       enabled: Boolean(url),
+      sso: Boolean(url && process.env.METABASE_URL && process.env.METABASE_EMAIL && process.env.METABASE_PASSWORD),
       reports: [
         'Кандидаты на воронке подбора',
         'Эффективность каналов поиска',
@@ -150,8 +159,125 @@ export class ReportsService {
         'Сроки обработки кандидатов',
       ],
       note: url
-        ? 'Внешний BI (Metabase). SQL-шаблоны: docs/metabase-dashboards.sql'
-        : 'Metabase на стенде не подключён. Основная аналитика — блоки выше. Чтобы включить BI: поднимите профиль bi и задайте METABASE_PUBLIC_URL=https://… в deploy/.env (не localhost).',
+        ? 'Расширенная аналитика откроется в том же аккаунте, что и ATS.'
+        : 'Сейчас используется встроенная аналитика на этой странице.',
+    };
+  }
+
+  private mbBase() {
+    return (process.env.METABASE_URL || '').replace(/\/$/, '');
+  }
+
+  private async mbFetch(path: string, init: RequestInit & { session?: string } = {}) {
+    const base = this.mbBase();
+    if (!base) throw new ServiceUnavailableException('Аналитика временно недоступна');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(init.headers as Record<string, string> | undefined),
+    };
+    if (init.session) headers['X-Metabase-Session'] = init.session;
+    const r = await fetch(`${base}${path}`, { ...init, headers });
+    const text = await r.text();
+    let data: any = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!r.ok) {
+      const msg = data?.message || data?.errors || text || r.statusText;
+      throw new BadRequestException(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    return data;
+  }
+
+  private async mbAdminSession() {
+    const email = process.env.METABASE_EMAIL;
+    const password = process.env.METABASE_PASSWORD;
+    if (!email || !password) throw new ServiceUnavailableException('Аналитика не настроена');
+    const data = await this.mbFetch('/api/session', {
+      method: 'POST',
+      body: JSON.stringify({ username: email, password }),
+    });
+    if (!data?.id) throw new ServiceUnavailableException('Не удалось войти в аналитику');
+    return String(data.id);
+  }
+
+  private strongPassword() {
+    // Metabase complexity: upper, lower, digit, special, length
+    return `Ti${randomBytes(9).toString('base64url')}!1aA`;
+  }
+
+  /** Ensure Metabase user for ATS account and return a session id (SSO bounce). */
+  async metabaseSso(user: AuthUser) {
+    const publicUrl = this.metabasePublicUrl();
+    if (!publicUrl) throw new ServiceUnavailableException('Аналитика не подключена');
+
+    const admin = await this.mbAdminSession();
+    const email = user.email.toLowerCase();
+    const list = await this.mbFetch('/api/user?status=all', { session: admin });
+    const users: MbUser[] = Array.isArray(list) ? list : list?.data || [];
+    let mb = users.find((u) => (u.email || '').toLowerCase() === email);
+
+    const password = this.strongPassword();
+    const first = user.firstName || 'User';
+    const last = user.lastName || 'ATS';
+
+    if (!mb) {
+      mb = await this.mbFetch('/api/user', {
+        method: 'POST',
+        session: admin,
+        body: JSON.stringify({
+          first_name: first,
+          last_name: last,
+          email,
+          password,
+        }),
+      });
+    } else {
+      await this.mbFetch(`/api/user/${mb.id}`, {
+        method: 'PUT',
+        session: admin,
+        body: JSON.stringify({
+          first_name: first,
+          last_name: last,
+          email,
+          password,
+        }),
+      });
+    }
+
+    // Superusers keep admin; others get normal access. Admins of ATS → Metabase admin group is optional.
+    if (user.role === SystemRole.ADMIN && mb && !mb.is_superuser) {
+      try {
+        await this.mbFetch(`/api/user/${mb.id}`, {
+          method: 'PUT',
+          session: admin,
+          body: JSON.stringify({ is_superuser: true }),
+        });
+      } catch {
+        /* older Metabase may reject */
+      }
+    }
+
+    const session = await this.mbFetch('/api/session', {
+      method: 'POST',
+      body: JSON.stringify({ username: email, password }),
+    });
+    if (!session?.id) throw new ServiceUnavailableException('Не удалось открыть аналитику');
+
+    // One-time bounce token so the browser can set the cookie on the Metabase host/port
+    const token = randomBytes(24).toString('hex');
+    const payload = JSON.stringify({
+      sessionId: String(session.id),
+      url: publicUrl,
+      exp: Date.now() + 60_000,
+    });
+    // Store in memory-less signed blob (HMAC with worker/admin secret)
+    const secret = process.env.METABASE_PASSWORD || process.env.JWT_SECRET || 'loghr';
+    const sig = createHash('sha256').update(`${token}.${payload}.${secret}`).digest('hex').slice(0, 32);
+    // Pass payload in response; client hits bounce with sessionId directly (same-origin API issued it)
+    return {
+      url: publicUrl,
+      sessionId: String(session.id),
+      bounce: `${publicUrl}/`,
+      token: `${token}.${sig}`,
     };
   }
 }
@@ -171,6 +297,11 @@ export class ReportsController {
   @Get('processing-time') processing() { return this.service.candidateProcessingTime(); }
   @Get('summary') summary() { return this.service.summary(); }
   @Get('metabase') metabase() { return this.service.metabaseInfo(); }
+
+  @Get('metabase/sso')
+  sso(@CurrentUser() user: AuthUser) {
+    return this.service.metabaseSso(user);
+  }
 }
 
 @Module({ controllers: [ReportsController], providers: [ReportsService], exports: [ReportsService] })

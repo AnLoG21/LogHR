@@ -771,7 +771,7 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
         <>
           <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{chat.data.note}</div>
           {!chat.data.configured ? (
-            <div style={{ fontSize: 12, marginTop: 4 }}>Статус: не настроено (HH_CHAT_TOKEN / HH_ACCESS_TOKEN)</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Статус: чат HeadHunter пока не подключён</div>
           ) : (
             <>
               {chat.data.negotiationId ? (

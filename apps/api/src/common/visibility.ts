@@ -1,5 +1,7 @@
 import { SystemRole } from '@prisma/client';
 
+export type VisibilityScope = 'all' | 'orgUnit' | 'assigned' | 'checks';
+
 /** Apply visibility profile heuristics to list queries */
 export function visibilityWhere(user: {
   id: string;
@@ -11,8 +13,11 @@ export function visibilityWhere(user: {
     return {};
   }
 
-  // Explicit profile rule: limit to user's org unit
-  if (user.visibilityRules?.scope === 'orgUnit' && user.orgUnitId) {
+  const scope = user.visibilityRules?.scope;
+
+  if (scope === 'all') return {};
+
+  if ((scope === 'orgUnit' || scope === 'own_org') && user.orgUnitId) {
     return {
       OR: [
         { hiringRequest: { orgUnitId: user.orgUnitId } },
@@ -23,9 +28,25 @@ export function visibilityWhere(user: {
     };
   }
 
-  if (user.role === SystemRole.SECURITY) {
-    return {};
+  if (scope === 'assigned') {
+    return {
+      OR: [
+        { assigneeId: user.id },
+        { hiringRequest: { recruiterId: user.id } },
+        { hiringRequest: { hiringManagerId: user.id } },
+      ],
+    };
   }
+
+  if (scope === 'checks' || user.role === SystemRole.SECURITY) {
+    return {
+      OR: [
+        { checks: { some: {} } },
+        { assigneeId: user.id },
+      ],
+    };
+  }
+
   if (user.role === SystemRole.HIRING_MANAGER && user.orgUnitId) {
     return {
       OR: [

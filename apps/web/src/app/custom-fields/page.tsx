@@ -8,39 +8,112 @@ import { CUSTOM_FIELD_ENTITY_LABELS, CUSTOM_FIELD_TYPE_LABELS, ruLabel } from '@
 
 const ENTITIES = Object.entries(CUSTOM_FIELD_ENTITY_LABELS).map(([value, label]) => ({ value, label }));
 
+type FieldForm = {
+  id?: string;
+  entityType: string;
+  code: string;
+  label: string;
+  fieldType: string;
+  optionsText: string;
+  isActive?: boolean;
+};
+
+const emptyForm = (): FieldForm => ({
+  entityType: 'VACANCY',
+  code: '',
+  label: '',
+  fieldType: 'string',
+  optionsText: '',
+});
+
 export default function CustomFieldsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ entityType: 'VACANCY', code: '', label: '', fieldType: 'string' });
+  const [form, setForm] = useState<FieldForm>(emptyForm());
   const fields = useQuery({ queryKey: ['custom-fields'], queryFn: () => api<any[]>('/custom-fields') });
+
   const create = useMutation({
-    mutationFn: () => api('/custom-fields', { method: 'POST', body: JSON.stringify(form) }),
+    mutationFn: () =>
+      api('/custom-fields', {
+        method: 'POST',
+        body: JSON.stringify({
+          entityType: form.entityType,
+          code: form.code.trim(),
+          label: form.label.trim(),
+          fieldType: form.fieldType,
+          options: form.fieldType === 'select'
+            ? form.optionsText.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
+            : undefined,
+        }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['custom-fields'] });
       setOpen(false);
-      setForm({ entityType: 'VACANCY', code: '', label: '', fieldType: 'string' });
+      setForm(emptyForm());
     },
   });
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/custom-fields/${form.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          label: form.label.trim(),
+          fieldType: form.fieldType,
+          isActive: form.isActive,
+          options: form.fieldType === 'select'
+            ? form.optionsText.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
+            : undefined,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['custom-fields'] });
+      setOpen(false);
+      setForm(emptyForm());
+    },
+  });
+
   const toggle = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api(`/custom-fields/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-fields'] }),
   });
 
+  function openCreate() {
+    setForm(emptyForm());
+    setOpen(true);
+  }
+
+  function openEdit(f: any) {
+    const opts = Array.isArray(f.options) ? f.options : [];
+    setForm({
+      id: f.id,
+      entityType: f.entityType,
+      code: f.code,
+      label: f.label,
+      fieldType: f.fieldType,
+      optionsText: opts.join(', '),
+      isActive: f.isActive,
+    });
+    setOpen(true);
+  }
+
   return (
     <AppShell
-      title="Кастомные поля"
-      subtitle="Минимальный low-code: доп. поля сущностей (значения в extra JSON)"
-      actions={<Button onClick={() => setOpen(true)}>Добавить поле</Button>}
+      title="Дополнительные поля"
+      subtitle="Свои поля для вакансий, заявок и кандидатов. Добавьте поле — оно появится в карточках."
+      actions={<Button onClick={openCreate}>Добавить поле</Button>}
     >
       <Card className="divide-y divide-[var(--line)]">
         {(fields.data || []).map((f) => (
           <div key={f.id} className="px-4 py-3 flex justify-between gap-3 text-sm items-center">
-            <div>
-              <div className="font-semibold">{f.label}</div>
-              <div className="text-xs text-[var(--muted)]">{ruLabel(CUSTOM_FIELD_ENTITY_LABELS, f.entityType)} · {f.code} · {ruLabel(CUSTOM_FIELD_TYPE_LABELS, f.fieldType)}</div>
-            </div>
-            <div className="flex items-center gap-2">
+            <button type="button" className="text-left min-w-0" onClick={() => openEdit(f)}>
+              <div className="font-semibold hover:underline">{f.label}</div>
+              <div className="text-xs text-[var(--muted)]">
+                {ruLabel(CUSTOM_FIELD_ENTITY_LABELS, f.entityType)} · {ruLabel(CUSTOM_FIELD_TYPE_LABELS, f.fieldType)}
+              </div>
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
               <Badge color={f.isActive ? 'green' : 'amber'}>{f.isActive ? 'активно' : 'выкл'}</Badge>
               <Button variant="ghost" onClick={() => toggle.mutate({ id: f.id, isActive: !f.isActive })}>
                 {f.isActive ? 'Выкл.' : 'Вкл.'}
@@ -49,21 +122,43 @@ export default function CustomFieldsPage() {
           </div>
         ))}
         {!fields.isLoading && !(fields.data || []).length ? (
-          <Empty text="Полей пока нет — добавьте первое (аналог Table 1 модификаций ТЗ)" />
+          <Empty text="Полей пока нет — нажмите «Добавить поле»" />
         ) : null}
       </Card>
 
-      <Modal open={open} title="Новое поле" onClose={() => setOpen(false)}>
+      <Modal open={open} title={form.id ? 'Изменить поле' : 'Новое поле'} onClose={() => setOpen(false)}>
         <div className="space-y-3">
-          <Select value={form.entityType} onChange={(e) => setForm({ ...form, entityType: e.target.value })}>
-            {ENTITIES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
-          </Select>
-          <Input placeholder="Код (latin_snake)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-          <Input placeholder="Название" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+          {!form.id ? (
+            <Select value={form.entityType} onChange={(e) => setForm({ ...form, entityType: e.target.value })}>
+              {ENTITIES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
+            </Select>
+          ) : (
+            <div className="text-xs text-[var(--muted)]">{ruLabel(CUSTOM_FIELD_ENTITY_LABELS, form.entityType)} · {form.code}</div>
+          )}
+          {!form.id ? (
+            <Input
+              placeholder="Код (латиницей, без пробелов)"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+          ) : null}
+          <Input placeholder="Название для людей" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
           <Select value={form.fieldType} onChange={(e) => setForm({ ...form, fieldType: e.target.value })}>
             {Object.entries(CUSTOM_FIELD_TYPE_LABELS).map(([t, l]) => <option key={t} value={t}>{l}</option>)}
           </Select>
-          <Button disabled={!form.code || !form.label || create.isPending} onClick={() => create.mutate()}>Создать</Button>
+          {form.fieldType === 'select' ? (
+            <Input
+              placeholder="Варианты через запятую: Да, Нет, Возможно"
+              value={form.optionsText}
+              onChange={(e) => setForm({ ...form, optionsText: e.target.value })}
+            />
+          ) : null}
+          <Button
+            disabled={!form.label || (!form.id && !form.code) || create.isPending || save.isPending}
+            onClick={() => (form.id ? save.mutate() : create.mutate())}
+          >
+            {form.id ? 'Сохранить' : 'Создать'}
+          </Button>
         </div>
       </Modal>
     </AppShell>

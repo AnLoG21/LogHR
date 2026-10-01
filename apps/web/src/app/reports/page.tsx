@@ -152,15 +152,15 @@ export default function ReportsPage() {
             ))}
           </div>
           <div className="mt-4 pt-3 border-t border-[var(--line)]">
-            <div className="font-medium text-sm mb-1">Metabase BI</div>
+            <div className="font-medium text-sm mb-1">Расширенная аналитика</div>
             <p className="text-xs text-[var(--muted)] mb-2">{metabase.data?.note}</p>
-            {metabase.data?.enabled && metabase.data?.url ? (
-              <a className="text-[var(--brand-secondary)] underline text-sm" href={metabase.data.url} target="_blank" rel="noreferrer">
-                Открыть Metabase
-              </a>
+            {metabase.data?.enabled ? (
+              <Link className="text-[var(--brand-secondary)] underline text-sm" href="/reports/metabase">
+                Открыть аналитику
+              </Link>
             ) : (
               <div className="text-xs text-[var(--muted)]">
-                Сейчас используется встроенная аналитика на этой странице. Отдельный Metabase на 2 ГБ сервере не поднимаем.
+                Сейчас достаточно блоков выше. Расширенная аналитика появится после подключения администратором.
               </div>
             )}
           </div>

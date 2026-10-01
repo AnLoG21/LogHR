@@ -41,7 +41,7 @@ export class JobBoardsService {
   async syncResponses(board: JobBoard, vacancyExternalId?: string) {
     const adapter = getJobBoardAdapter(board);
     if (!adapter.configured()) {
-      return { imported: 0, updated: 0, skipped: 0, configured: false, note: `${board}: нет токена в .env` };
+      return { imported: 0, updated: 0, skipped: 0, configured: false, note: `${board}: площадка не подключена` };
     }
 
     const pubs = await this.prisma.publication.findMany({
@@ -175,7 +175,7 @@ export class JobBoardsService {
   async refreshHhResumes(limit = 30) {
     const hh = getHhAdapter();
     if (!hh?.configured()) {
-      return { updated: 0, configured: false, note: 'Нет HH_ACCESS_TOKEN' };
+      return { updated: 0, configured: false, note: 'HeadHunter не подключён' };
     }
     const candidates = await this.prisma.candidate.findMany({
       where: { source: 'HH', externalId: { not: null }, isDepersonalized: false },
@@ -216,7 +216,7 @@ export class JobBoardsService {
 
   async refreshOneCandidate(candidateId: string) {
     const hh = getHhAdapter();
-    if (!hh?.configured()) return { ok: false, note: 'Нет HH_ACCESS_TOKEN' };
+    if (!hh?.configured()) return { ok: false, note: 'HeadHunter не подключён' };
     const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
     if (!c?.externalId) return { ok: false, note: 'У кандидата нет externalId (HH resume id)' };
     const fresh = await hh.fetchResume(c.externalId);
@@ -253,8 +253,8 @@ export class JobBoardsService {
     return {
       configured,
       note: configured
-        ? 'HH токен задан — sync откликов и обновление резюме доступны'
-        : 'Задайте HH_ACCESS_TOKEN в deploy/.env',
+        ? 'HeadHunter подключён — можно синхронизировать отклики и резюме'
+        : 'HeadHunter пока не подключён. Обратитесь к администратору.',
     };
   }
 }

@@ -2,46 +2,129 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Button, Card, Empty, Input, Modal } from '@/components/ui';
+import { AppShell, Button, Card, Empty, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
+
+const SCOPES = [
+  { value: 'all', label: 'Всё в системе', hint: 'Как у администратора — без ограничений' },
+  { value: 'orgUnit', label: 'Своё подразделение', hint: 'Кандидаты и заявки своего орг. юнита' },
+  { value: 'assigned', label: 'Только назначенные мне', hint: 'Где я рекрутер, менеджер или ответственный' },
+  { value: 'checks', label: 'Проверки СБ', hint: 'Доступ к кандидатам с проверками' },
+];
+
+function scopeLabel(scope?: string) {
+  return SCOPES.find((s) => s.value === scope || (scope === 'own_org' && s.value === 'orgUnit'))?.label || 'По роли по умолчанию';
+}
 
 export default function VisibilityPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState<any | null>(null);
+  const [form, setForm] = useState({ name: '', code: '', scope: 'orgUnit', description: '' });
   const list = useQuery({ queryKey: ['visibility'], queryFn: () => api<any[]>('/visibility') });
+
   const create = useMutation({
-    mutationFn: (body: any) => api('/visibility', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => { setOpen(false); qc.invalidateQueries({ queryKey: ['visibility'] }); },
+    mutationFn: () =>
+      api('/visibility', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          code: form.code.toUpperCase().replace(/\s+/g, '_'),
+          rules: { scope: form.scope, description: form.description },
+        }),
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      setForm({ name: '', code: '', scope: 'orgUnit', description: '' });
+      qc.invalidateQueries({ queryKey: ['visibility'] });
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/visibility/${edit.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: edit.name,
+          rules: { scope: edit.scope, description: edit.description || '' },
+        }),
+      }),
+    onSuccess: () => {
+      setEdit(null);
+      qc.invalidateQueries({ queryKey: ['visibility'] });
+    },
   });
 
   return (
-    <AppShell title="Профили видимости" subtitle="Ограничение доступа к объектам ATS" actions={<Button onClick={() => setOpen(true)}>Добавить</Button>}>
+    <AppShell
+      title="Профили видимости"
+      subtitle="Кто какие кандидаты и заявки видит в списке"
+      actions={<Button onClick={() => setOpen(true)}>Добавить профиль</Button>}
+    >
       <div className="space-y-3">
-        {(list.data || []).map((p: any) => (
-          <Card key={p.id} className="p-4">
-            <div className="font-bold">{p.name}</div>
-            <div className="text-xs text-[var(--muted)] mt-1">Код: {p.code} · пользователей: {p._count?.users ?? 0}</div>
-            <pre className="text-xs mt-2 bg-[var(--surface-2)] p-2 rounded overflow-auto">{JSON.stringify(p.rules || {}, null, 2)}</pre>
-          </Card>
-        ))}
-        {!list.isLoading && !(list.data || []).length ? <Empty text="Профилей нет — запустите seed" /> : null}
+        {(list.data || []).map((p: any) => {
+          const scope = p.rules?.scope;
+          return (
+            <Card key={p.id} className="p-4 flex flex-wrap justify-between gap-3 items-start">
+              <div>
+                <div className="font-bold">{p.name}</div>
+                <div className="text-sm mt-1">{scopeLabel(scope)}</div>
+                {p.rules?.description ? (
+                  <div className="text-xs text-[var(--muted)] mt-1">{p.rules.description}</div>
+                ) : null}
+                <div className="text-xs text-[var(--muted)] mt-2">Пользователей: {p._count?.users ?? 0}</div>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  setEdit({
+                    id: p.id,
+                    name: p.name,
+                    scope: scope === 'own_org' ? 'orgUnit' : scope || 'orgUnit',
+                    description: p.rules?.description || '',
+                  })
+                }
+              >
+                Изменить
+              </Button>
+            </Card>
+          );
+        })}
+        {!list.isLoading && !(list.data || []).length ? (
+          <Empty text="Профилей пока нет — создайте первый" />
+        ) : null}
       </div>
+
       <Modal open={open} title="Новый профиль видимости" onClose={() => setOpen(false)}>
-        <form className="space-y-3" onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          const code = String(fd.get('code') || '').toUpperCase().replace(/\s+/g, '_');
-          create.mutate({
-            name: fd.get('name'),
-            code,
-            rules: { scope: 'orgUnit', description: fd.get('desc') || '' },
-          });
-        }}>
-          <Input name="name" placeholder="Название" required />
-          <Input name="code" placeholder="Код (RECRUITER_SCOPE)" required />
-          <Input name="desc" placeholder="Описание правила" />
-          <Button type="submit" disabled={create.isPending}>Создать</Button>
-        </form>
+        <div className="space-y-3">
+          <Input placeholder="Название" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input placeholder="Код (латиницей)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          <label className="block text-sm">
+            Область доступа
+            <Select className="mt-1" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })}>
+              {SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </Select>
+            <div className="text-xs text-[var(--muted)] mt-1">{SCOPES.find((s) => s.value === form.scope)?.hint}</div>
+          </label>
+          <Textarea placeholder="Комментарий (необязательно)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <Button disabled={!form.name || !form.code || create.isPending} onClick={() => create.mutate()}>Создать</Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!edit} title="Изменить профиль" onClose={() => setEdit(null)}>
+        {edit ? (
+          <div className="space-y-3">
+            <Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+            <label className="block text-sm">
+              Область доступа
+              <Select className="mt-1" value={edit.scope} onChange={(e) => setEdit({ ...edit, scope: e.target.value })}>
+                {SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </Select>
+            </label>
+            <Textarea value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
+            <Button disabled={save.isPending} onClick={() => save.mutate()}>Сохранить</Button>
+          </div>
+        ) : null}
       </Modal>
     </AppShell>
   );

@@ -40,10 +40,10 @@ export class IntegrationsService {
     };
     return rows.map((r) => {
       const live = !!envMap[r.code];
-      let note = live ? 'live' : 'не настроено';
-      if (r.code === 'REDIS' && !live) note = 'очередь offline';
-      if (r.code === 'HH' && !live) note = 'mock (нет HH_ACCESS_TOKEN)';
-      if (r.code === 'AI' && live) note = `live: ${aiProviders().map((p) => p.name).join(' → ')}`;
+      let note = live ? 'подключено' : 'не подключено';
+      if (r.code === 'REDIS' && !live) note = 'очередь недоступна';
+      if (r.code === 'HH' && !live) note = 'не подключено';
+      if (r.code === 'AI' && live) note = 'подключено';
       return {
         ...r,
         configured: r.configured || live,
@@ -125,7 +125,7 @@ export class IntegrationsService {
         configured: false,
         live: false,
         messages: [],
-        note: 'Синхронизация чата HH недоступна без HH_CHAT_TOKEN / HH_ACCESS_TOKEN. Используйте deep-link WhatsApp/Telegram.',
+        note: 'Чат HeadHunter пока не подключён. Можно написать в WhatsApp или Telegram.',
       };
     }
 
@@ -208,7 +208,7 @@ export class IntegrationsService {
   async sendHhChat(candidateId: string, text: string) {
     const token = process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN;
     if (!token) {
-      return { ok: false, configured: false, note: 'Нет HH_CHAT_TOKEN / HH_ACCESS_TOKEN' };
+      return { ok: false, configured: false, note: 'Чат HeadHunter не подключён' };
     }
     if (!text?.trim()) return { ok: false, note: 'Пустое сообщение' };
 
@@ -248,7 +248,7 @@ export class IntegrationsService {
       return {
         configured: false,
         suggestions: [],
-        note: 'DaData не настроена (DADATA_TOKEN). Введите адрес вручную.',
+        note: 'Подсказки адреса недоступны — введите вручную.',
       };
     }
     if (!query?.trim()) return { configured: true, suggestions: [] };

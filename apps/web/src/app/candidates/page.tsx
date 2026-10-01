@@ -432,7 +432,7 @@ function CandidatesInner() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="text-sm text-[var(--muted)]">
-            Кандидатов: {selected.size}. Письмо уйдёт на email (без SMTP — в лог MOCKED).
+            Кандидатов: {selected.size}. Письма уйдут на email (если почта настроена).
           </div>
           {bulkOpen === 'invite' ? (
             <Input

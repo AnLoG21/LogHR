@@ -145,7 +145,7 @@ function PublicationsInner() {
   }
 
   return (
-    <AppShell title="Публикации" subtitle="Job-борды: HH боевой адаптер, остальные — mock до ключей">
+    <AppShell title="Публикации" subtitle="Размещение вакансий и работа с откликами площадок">
       <div className="flex border-b border-[var(--sk-line)] mb-4">
         <button className={clsx('sk-tab', tab === 'list' && 'active')} onClick={() => setTab('list')}>Аккаунты / публикации</button>
         <button className={clsx('sk-tab', tab === 'templates' && 'active')} onClick={() => setTab('templates')}>Шаблоны</button>
@@ -185,7 +185,10 @@ function PublicationsInner() {
             </div>
           </Card>
           {runAuto.data ? (
-            <Card className="p-3 text-xs"><pre className="overflow-auto">{JSON.stringify(runAuto.data, null, 2)}</pre></Card>
+            <Card className="p-3 text-sm text-[var(--muted)]">
+              Готово: обработано {(runAuto.data as any).processed ?? (runAuto.data as any).ran ?? '—'}
+              {(runAuto.data as any).errors ? `, ошибок: ${(runAuto.data as any).errors}` : ''}
+            </Card>
           ) : null}
           <Card className="divide-y divide-[var(--line)]">
             {(autoRules.data || []).map((r: any) => (
@@ -207,7 +210,7 @@ function PublicationsInner() {
             ))}
             {!autoRules.isLoading && !(autoRules.data || []).length ? <Empty text="Правил авторазмещения нет" /> : null}
           </Card>
-          <p className="text-xs text-[var(--muted)]">Worker гоняет due-правила каждые 5 минут (`POST /publications/auto-run`). Без ключей борда публикация останется MOCKED.</p>
+          <p className="text-xs text-[var(--muted)]">Правила выполняются автоматически каждые несколько минут. Можно запустить вручную кнопкой выше.</p>
         </div>
       ) : tab === 'search' ? (
         <Card className="p-4 space-y-3">
@@ -220,24 +223,38 @@ function PublicationsInner() {
             </div>
             <Button onClick={() => search.mutate()} disabled={search.isPending}>Запустить автопоиск</Button>
           </div>
-          {search.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(search.data, null, 2)}</pre> : null}
+          {search.data ? (
+            <div className="text-sm text-[var(--muted)]">
+              Найдено: {(search.data as any).total ?? (search.data as any).items?.length ?? 'готово'}
+            </div>
+          ) : null}
           <div className="border-t border-[var(--line)] pt-3 space-y-2">
-            <div className="font-semibold text-sm">HH: отклики и резюме</div>
+            <div className="font-semibold text-sm">HeadHunter: отклики и резюме</div>
             <p className="text-xs text-[var(--muted)]">
-              {hhStatus.data?.note || 'Проверка токена…'} Worker также тянет отклики каждые 10 мин и обновляет резюме раз в 6 ч.
+              {hhStatus.data?.note || 'Проверка подключения…'}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => syncHh.mutate()} disabled={syncHh.isPending || hhStatus.data?.configured === false}>
-                {syncHh.isPending ? 'Синхронизация…' : 'Синхронизировать отклики HH'}
+                {syncHh.isPending ? 'Синхронизация…' : 'Синхронизировать отклики'}
               </Button>
               <Button variant="ghost" onClick={() => refreshResumes.mutate()} disabled={refreshResumes.isPending || hhStatus.data?.configured === false}>
-                {refreshResumes.isPending ? 'Обновление…' : 'Обновить резюме с HH'}
+                {refreshResumes.isPending ? 'Обновление…' : 'Обновить резюме'}
               </Button>
             </div>
-            {syncHh.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(syncHh.data, null, 2)}</pre> : null}
-            {refreshResumes.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(refreshResumes.data, null, 2)}</pre> : null}
+            {syncHh.data ? (
+              <div className="text-sm text-[var(--muted)]">
+                Отклики: новых {(syncHh.data as any).imported ?? 0}, обновлено {(syncHh.data as any).updated ?? 0}
+                {(syncHh.data as any).note ? ` · ${(syncHh.data as any).note}` : ''}
+              </div>
+            ) : null}
+            {refreshResumes.data ? (
+              <div className="text-sm text-[var(--muted)]">
+                Резюме обновлено: {(refreshResumes.data as any).updated ?? 0}
+                {(refreshResumes.data as any).note ? ` · ${(refreshResumes.data as any).note}` : ''}
+              </div>
+            ) : null}
           </div>
-          <p className="text-sm text-[var(--muted)]">Без ключей площадки отвечают mock. HH — боевой при HH_ACCESS_TOKEN.</p>
+          <p className="text-sm text-[var(--muted)]">Пока площадка не подключена администратором, действия недоступны или работают в демо-режиме.</p>
         </Card>
       ) : tab === 'templates' ? (
         <>

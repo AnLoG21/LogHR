@@ -86,7 +86,7 @@ function BrandMark({ size = 28 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/logo.png"
+      src="/logo.svg"
       alt=""
       width={size}
       height={size}

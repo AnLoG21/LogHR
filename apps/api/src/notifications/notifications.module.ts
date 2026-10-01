@@ -246,7 +246,7 @@ export class NotificationsController {
   @Get('templates')
   templates() { return this.service.listTemplates(); }
 
-  @Roles(SystemRole.ADMIN)
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP)
   @Patch('templates/:id')
   update(@Param('id') id: string, @Body() dto: { subject?: string; body?: string; isActive?: boolean }) {
     return this.service.updateTemplate(id, dto);
