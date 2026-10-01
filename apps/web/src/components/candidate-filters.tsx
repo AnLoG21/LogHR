@@ -471,7 +471,7 @@ export function AdvancedFiltersModal({
                     key={b.id}
                     type="button"
                     className="sk-btn sk-btn-outline"
-                    style={{ height: 32, fontSize: 12, background: draft.lastJobBucket === b.id ? '#e8f5f3' : undefined }}
+                    style={{ height: 32, fontSize: 12, background: draft.lastJobBucket === b.id ? 'var(--sk-success-soft)' : undefined }}
                     onClick={() => patch({ lastJobBucket: draft.lastJobBucket === b.id ? '' : b.id })}
                   >
                     {b.label}
@@ -582,7 +582,7 @@ export function AdvancedFiltersModal({
             marginRight: -20,
             marginBottom: -16,
             padding: '12px 20px',
-            background: '#f3f5f7',
+            background: 'var(--sk-soft)',
             borderTop: '1px solid var(--sk-line, #e5e7eb)',
             display: 'flex',
             flexWrap: 'wrap',

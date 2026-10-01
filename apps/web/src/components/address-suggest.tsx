@@ -54,7 +54,7 @@ export function AddressSuggest({
             left: 0,
             right: 0,
             top: '100%',
-            background: '#fff',
+            background: 'var(--sk-panel)',
             border: '1px solid var(--sk-line, #e5e7eb)',
             borderRadius: 10,
             maxHeight: 220,

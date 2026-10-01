@@ -103,7 +103,7 @@ export default function DashboardPage() {
               <Link
                 key={c.id}
                 href={`/candidates/${c.id}`}
-                className="flex items-center justify-between px-4 py-3.5 hover:bg-[#f4fafb] table-row-enter"
+                className="flex items-center justify-between px-4 py-3.5 hover:bg-[var(--sk-hover)] table-row-enter"
                 style={{ animationDelay: `${i * 40}ms` }}
               >
                 <div>

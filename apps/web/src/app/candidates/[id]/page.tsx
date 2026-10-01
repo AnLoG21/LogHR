@@ -49,9 +49,11 @@ function CandidateDetailInner() {
     firstName: '', lastName: '', middleName: '', phone: '', email: '', city: '', gender: '',
   });
   const [tagPick, setTagPick] = useState('');
+  const [commentOpen, setCommentOpen] = useState(sp.get('tab') === 'comments');
 
   useEffect(() => {
     if (sp.get('tab') === 'comments' || sp.get('tab') === 'history') setTab('history');
+    if (sp.get('tab') === 'comments') setCommentOpen(true);
     if (sp.get('edit') === '1') setEditOpen(true);
   }, [sp]);
 
@@ -94,9 +96,11 @@ function CandidateDetailInner() {
   });
 
   const addComment = useMutation({
-    mutationFn: () => api(`/candidates/${id}/comments`, { method: 'POST', body: JSON.stringify({ body: comment }) }),
+    mutationFn: () => api(`/candidates/${id}/comments`, { method: 'POST', body: JSON.stringify({ body: comment.trim() }) }),
     onSuccess: () => {
       setComment('');
+      setCommentOpen(false);
+      setTab('history');
       qc.invalidateQueries({ queryKey: ['candidate', id] });
     },
   });
@@ -288,7 +292,7 @@ function CandidateDetailInner() {
                 <Icon name="star" />
               </button>
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
-              <Button variant="ghost" onClick={() => setTab('history')}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
+              <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone}>Позвонить</Button>
               <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
                 <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
@@ -308,7 +312,7 @@ function CandidateDetailInner() {
               ) : null}
             </div>
             {approveLink ? (
-              <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13 }}>
+              <div style={{ marginTop: 12, padding: 12, background: 'var(--sk-success-soft)', borderRadius: 8, fontSize: 13 }}>
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>Ссылка для заказчика</div>
                 <a href={approveLink} className="sk-link" target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{approveLink}</a>
                 <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
@@ -345,7 +349,7 @@ function CandidateDetailInner() {
               {tab === 'resume' && (
                 <div>
                   <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Резюме кандидата</h2>
-                  <div style={{ borderRadius: 8, background: '#f5f7f9', padding: 16 }}>
+                  <div style={{ borderRadius: 8, background: 'var(--sk-soft)', padding: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Общая информация</div>
                     <div className="meta-grid" style={{ marginTop: 0 }}>
                       <div className="meta-row"><span className="meta-label">ФИО</span><span>{fullName(c)}</span></div>
@@ -363,25 +367,23 @@ function CandidateDetailInner() {
               )}
               {tab === 'history' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий…" />
-                    <Button disabled={!comment || addComment.isPending} onClick={() => addComment.mutate()}>Добавить</Button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <Textarea
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Напишите комментарий… (Ctrl+Enter — отправить)"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && comment.trim()) addComment.mutate();
+                      }}
+                      style={{ minHeight: 72 }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button disabled={!comment.trim() || addComment.isPending} onClick={() => addComment.mutate()}>
+                        {addComment.isPending ? 'Сохраняем…' : 'Добавить комментарий'}
+                      </Button>
+                    </div>
                   </div>
-                  {(c.comments || []).map((cm: any) => (
-                    <div key={cm.id} style={{ borderBottom: '1px solid var(--sk-line)', paddingBottom: 12 }}>
-                      <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>
-                        {cm.author ? `${cm.author.lastName} ${cm.author.firstName}` : 'Система'} · {new Date(cm.createdAt).toLocaleString('ru-RU')}
-                      </div>
-                      <div style={{ fontSize: 14, marginTop: 4 }}>{cm.body}</div>
-                    </div>
-                  ))}
-                  {(c.statusHistory || []).map((h: any) => (
-                    <div key={h.id} style={{ fontSize: 14, color: 'var(--sk-muted)' }}>
-                      → <strong style={{ color: 'var(--sk-ink)' }}>{h.stage?.name}</strong>
-                      {h.comment ? ` — ${h.comment}` : ''}{' '}
-                      <span style={{ fontSize: 12 }}>{new Date(h.createdAt).toLocaleString('ru-RU')}</span>
-                    </div>
-                  ))}
+                  <HistoryFeed comments={c.comments || []} history={c.statusHistory || []} />
                 </div>
               )}
               {tab === 'attachments' && (
@@ -487,6 +489,28 @@ function CandidateDetailInner() {
         </aside>
       </div>
 
+      <Modal open={commentOpen} title="Комментарий к кандидату" onClose={() => setCommentOpen(false)}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Например: созвонились, ждёт оффер до пятницы"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && comment.trim()) addComment.mutate();
+            }}
+            style={{ minHeight: 120 }}
+          />
+          <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>Комментарий увидят все, у кого есть доступ к кандидату. Ctrl+Enter — сохранить.</div>
+          {addComment.error ? <div style={{ fontSize: 13, color: 'var(--sk-danger)' }}>{(addComment.error as Error).message}</div> : null}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="ghost" onClick={() => setCommentOpen(false)}>Отмена</Button>
+            <Button disabled={!comment.trim() || addComment.isPending} onClick={() => addComment.mutate()}>
+              {addComment.isPending ? 'Сохраняем…' : 'Сохранить'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={editOpen} title="Редактировать кандидата" onClose={() => setEditOpen(false)}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Input placeholder="Фамилия" value={editForm.lastName} onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })} />
@@ -530,7 +554,7 @@ function CandidateDetailInner() {
             );
           })}
           <Button disabled={!stageId || changeStage.isPending} onClick={() => changeStage.mutate()}>Подтвердить перевод</Button>
-          {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
+          {changeStage.error ? <div style={{ fontSize: 13, color: 'var(--sk-text-danger)' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
       </Modal>
 
@@ -544,6 +568,44 @@ function CandidateDetailInner() {
         }}
       />
     </AppShell>
+  );
+}
+
+function HistoryFeed({ comments, history }: { comments: any[]; history: any[] }) {
+  const items = [
+    ...comments.map((cm) => ({ kind: 'comment' as const, at: cm.createdAt, data: cm })),
+    ...history.map((h) => ({ kind: 'stage' as const, at: h.createdAt, data: h })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  if (!items.length) {
+    return <div style={{ fontSize: 14, color: 'var(--sk-muted)' }}>Пока нет комментариев и смен этапа</div>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {items.map((it) => {
+        const when = new Date(it.at).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+        if (it.kind === 'comment') {
+          const cm = it.data;
+          return (
+            <div key={`c-${cm.id}`} style={{ padding: '12px 0', borderBottom: '1px solid var(--sk-line)' }}>
+              <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>
+                <strong style={{ color: 'var(--sk-label)', fontWeight: 600 }}>
+                  {cm.author ? `${cm.author.lastName} ${cm.author.firstName}` : 'Система'}
+                </strong>{' '}
+                · {when}
+              </div>
+              <div style={{ fontSize: 14, marginTop: 4, whiteSpace: 'pre-wrap' }}>{cm.body}</div>
+            </div>
+          );
+        }
+        const h = it.data;
+        return (
+          <div key={`s-${h.id}`} style={{ padding: '10px 0', borderBottom: '1px solid var(--sk-line)', fontSize: 13, color: 'var(--sk-muted)' }}>
+            Этап: <strong style={{ color: 'var(--sk-ink)' }}>{h.stage?.name || '—'}</strong>
+            {h.comment ? ` — ${h.comment}` : ''} · {when}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -603,7 +665,7 @@ function MergeDuplicatesModal({
             )}
           </div>
         ))}
-        {merge.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(merge.error as Error).message}</div> : null}
+        {merge.error ? <div style={{ fontSize: 13, color: 'var(--sk-text-danger)' }}>{(merge.error as Error).message}</div> : null}
       </div>
     </Modal>
   );
@@ -645,19 +707,19 @@ function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: bo
                   background: `conic-gradient(${tone} ${(score ?? 0) * 3.6}deg, var(--sk-line) 0deg)`,
                 }}
               >
-                <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#fff', display: 'grid', placeItems: 'center' }}>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'var(--sk-panel)', display: 'grid', placeItems: 'center' }}>
                   {score ?? '—'}
                 </div>
               </div>
               <div style={{ fontSize: 13, lineHeight: 1.45 }}>{data?.rationale}</div>
             </div>
             {strengths.length ? (
-              <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: '#047857' }}>
+              <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: 'var(--sk-text-success)' }}>
                 {strengths.map((s, i) => <li key={i}>{s}</li>)}
               </ul>
             ) : null}
             {risks.length ? (
-              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: '#b91c1c' }}>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: 'var(--sk-text-danger)' }}>
                 {risks.map((s, i) => <li key={i}>{s}</li>)}
               </ul>
             ) : null}
@@ -723,7 +785,7 @@ function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string
   };
 
   return (
-    <div style={{ padding: 12, background: '#f0fdf4', borderRadius: 8, display: 'grid', gap: 8 }}>
+    <div style={{ padding: 12, background: 'var(--sk-success-soft)', borderRadius: 8, display: 'grid', gap: 8 }}>
       <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
         <Icon name="whatsapp" className="w-4 h-4" /> Написать по шаблону
       </div>
@@ -737,7 +799,7 @@ function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string
         <option value="">Выберите шаблон…</option>
         {waTemplates.map((t) => <option key={t.id} value={t.code}>{t.subject}</option>)}
       </Select>
-      {render.error ? <div style={{ fontSize: 12, color: '#b91c1c' }}>{(render.error as Error).message}</div> : null}
+      {render.error ? <div style={{ fontSize: 12, color: 'var(--sk-text-danger)' }}>{(render.error as Error).message}</div> : null}
       {preview ? (
         <>
           <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
@@ -747,7 +809,7 @@ function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string
               +{preview.phone}. Текст подставится в чат, отправка — кнопкой в WhatsApp. Сообщение сохранится в истории.
             </span>
           </div>
-          {log.isSuccess ? <div style={{ fontSize: 12, color: '#15803d' }}>Записано в комментарии кандидата</div> : null}
+          {log.isSuccess ? <div style={{ fontSize: 12, color: 'var(--sk-text-success)' }}>Записано в комментарии кандидата</div> : null}
         </>
       ) : null}
     </div>
@@ -772,7 +834,7 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
     },
   });
   return (
-    <div style={{ marginTop: 8, padding: 12, background: '#f5f7f9', borderRadius: 8 }}>
+    <div style={{ marginTop: 8, padding: 12, background: 'var(--sk-soft)', borderRadius: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>Чат HH</div>
         <Button variant="ghost" onClick={() => chat.refetch()} disabled={chat.isFetching}>Обновить</Button>
@@ -796,8 +858,8 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
                       fontSize: 13,
                       padding: '8px 10px',
                       borderRadius: 8,
-                      background: m.fromEmployer ? '#e8f5f3' : '#fff',
-                      border: '1px solid #e5e7eb',
+                      background: m.fromEmployer ? 'var(--sk-success-soft)' : 'var(--sk-panel)',
+                      border: '1px solid var(--sk-line)',
                     }}
                   >
                     <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 2 }}>
@@ -823,7 +885,7 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
                 </div>
               ) : null}
               {send.data && !(send.data as any).ok ? (
-                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{(send.data as any).note}</div>
+                <div style={{ fontSize: 12, color: 'var(--sk-text-danger)', marginTop: 6 }}>{(send.data as any).note}</div>
               ) : null}
             </>
           )}

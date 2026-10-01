@@ -365,7 +365,7 @@ export function TokenPalette({
   hint?: string;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--line)] bg-[#f7faf8] p-3">
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--sk-soft)] p-3">
       <div className="text-sm font-semibold text-[var(--ink)] mb-1">Подстановки</div>
       <div className="text-xs text-[var(--muted)] mb-2">{hint}</div>
       <div className="flex flex-wrap gap-2">
@@ -446,7 +446,7 @@ export function TemplateComposer({
         />
       </div>
 
-      <div className="rounded-lg border border-dashed border-[var(--line)] bg-white px-3 py-2 text-xs text-[var(--muted)]">
+      <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--sk-panel)] px-3 py-2 text-xs text-[var(--muted)]">
         <div className="font-medium text-[var(--ink)] mb-1">Как увидит получатель</div>
         <div className="whitespace-pre-wrap font-medium">{previewTemplate(subject)}</div>
         <div className="mt-1 whitespace-pre-wrap">{previewTemplate(body)}</div>

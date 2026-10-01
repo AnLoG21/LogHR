@@ -312,7 +312,7 @@ function CandidatesInner() {
           <button
             type="button"
             className={clsx('sk-btn sk-btn-icon', layout === 'list' && 'active-view')}
-            style={layout === 'list' ? { background: '#e8ebef' } : undefined}
+            style={layout === 'list' ? { background: 'var(--sk-selected)' } : undefined}
             onClick={() => setLayout('list')}
             title="Список"
           >
@@ -321,7 +321,7 @@ function CandidatesInner() {
           <button
             type="button"
             className="sk-btn sk-btn-icon"
-            style={layout === 'kanban' ? { background: '#e8ebef' } : undefined}
+            style={layout === 'kanban' ? { background: 'var(--sk-selected)' } : undefined}
             onClick={() => setLayout('kanban')}
             title="Канбан"
           >
@@ -513,7 +513,7 @@ function CandidatesInner() {
           >
             Сохранить
           </Button>
-          {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
+          {changeStage.error ? <div style={{ fontSize: 13, color: 'var(--sk-text-danger)' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
       </Modal>
 

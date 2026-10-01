@@ -157,7 +157,7 @@ export default function VacancyDetailPage() {
         </div>
         <div className="divide-y divide-[var(--line)]">
           {candidates.map((c: any) => (
-            <Link key={c.id} href={`/candidates/${c.id}`} className="flex justify-between gap-2 px-4 py-3 hover:bg-[#f7fbfc] text-sm">
+            <Link key={c.id} href={`/candidates/${c.id}`} className="flex justify-between gap-2 px-4 py-3 hover:bg-[var(--sk-hover)] text-sm">
               <span className="font-medium">{fullName(c)}</span>
               <span className="flex items-center gap-2">
                 {children.length ? <span className="text-xs text-[var(--muted)]">{c.vacancy?.city || v.city || '—'}</span> : null}

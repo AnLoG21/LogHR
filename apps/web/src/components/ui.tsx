@@ -6,6 +6,7 @@ import { forwardRef, useEffect, useId, useMemo, useRef, useState, type InputHTML
 import { createPortal } from 'react-dom';
 import { NAV_GROUPS, ROLE_LABELS, SystemRole } from '@skillaz/shared';
 import { useAuth } from '@/lib/auth';
+import { THEME_LABELS, useTheme, type ThemePref } from '@/lib/theme';
 import clsx from 'clsx';
 
 function Icon({ name, className }: { name: string; className?: string }) {
@@ -75,6 +76,18 @@ function Icon({ name, className }: { name: string; className?: string }) {
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 15l3-4 3 2 4-6" /></svg>;
     case 'profile':
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><circle cx="12" cy="8" r="4" /><path d="M4 20a8 8 0 0 1 16 0" /><path d="M16 11h4" /><path d="M18 9v4" /></svg>;
+    case 'trash':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
+    case 'copy':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></svg>;
+    case 'up':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M12 19V5" /><path d="M5 12l7-7 7 7" /></svg>;
+    case 'down':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M12 5v14" /><path d="M19 12l-7 7-7-7" /></svg>;
+    case 'x':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M6 6l12 12M18 6L6 18" /></svg>;
+    case 'link':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg>;
     default:
       return <span className={c} />;
   }
@@ -97,6 +110,25 @@ function BrandMark({ size = 28 }: { size?: number }) {
 }
 
 const COMPANY_NAME = 'ТАЙМЫР ИНВЕСТ';
+
+const THEME_ORDER: ThemePref[] = ['light', 'dark', 'system'];
+
+export function ThemeToggle() {
+  const { pref, setPref } = useTheme();
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(pref) + 1) % THEME_ORDER.length];
+  const label = `${THEME_LABELS[pref]} — нажмите: ${THEME_LABELS[next].toLowerCase()}`;
+  return (
+    <button type="button" className="sk-btn sk-btn-icon" onClick={() => setPref(next)} title={label} aria-label={label}>
+      {pref === 'light' ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+      ) : pref === 'dark' ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+      )}
+    </button>
+  );
+}
 
 export function AppShell({
   children,
@@ -176,7 +208,7 @@ export function AppShell({
         </Link>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <Link href="/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }} title="Мой профиль">
-            <span style={{ width: 28, height: 28, borderRadius: '50%', background: '#e8ecf0', display: 'grid', placeItems: 'center', color: 'var(--sk-muted)' }}>
+            <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--sk-avatar)', display: 'grid', placeItems: 'center', color: 'var(--sk-muted)' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4" /><path d="M4 20a8 8 0 0 1 16 0" /></svg>
             </span>
             <span style={{ fontWeight: 500 }}>{user.lastName} {user.firstName}</span>
@@ -187,6 +219,7 @@ export function AppShell({
               {COMPANY_NAME}
             </span>
           </div>
+          <ThemeToggle />
           <button
             type="button"
             className="sk-btn sk-btn-outline"
@@ -212,7 +245,7 @@ export function AppShell({
               <input
                 ref={menuSearchRef}
                 className="sk-input"
-                style={{ paddingLeft: 32, height: 36, fontSize: 13, background: '#fff' }}
+                style={{ paddingLeft: 32, height: 36, fontSize: 13 }}
                 placeholder="Поиск по меню (Ctrl+K)"
                 aria-label="Поиск по меню"
                 onKeyDown={(e) => {
@@ -254,7 +287,7 @@ export function AppShell({
                           onClick={() => setOpenNav(false)}
                           className={clsx('nav-item', active && 'active')}
                         >
-                          <Icon name={item.icon} className="text-[#6b7280]" />
+                          <Icon name={item.icon} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
                         </Link>
                       );
@@ -367,6 +400,67 @@ export function Badge({ children, color = 'slate' }: { children: React.ReactNode
   return <span className={clsx('sk-status', map[color] || map.slate)}>{children}</span>;
 }
 
+export function ConfirmDelete({
+  onConfirm,
+  pending,
+  label = 'Удалить',
+  question = 'Удалить?',
+  iconOnly,
+}: {
+  onConfirm: () => void;
+  pending?: boolean;
+  label?: string;
+  question?: string;
+  iconOnly?: boolean;
+}) {
+  const [asking, setAsking] = useState(false);
+  if (asking) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 13, color: 'var(--sk-muted)' }}>{question}</span>
+        <button type="button" className="sk-btn sk-btn-outline" onClick={() => setAsking(false)}>Нет</button>
+        <button
+          type="button"
+          className="sk-btn"
+          style={{ background: 'var(--sk-danger)', color: '#fff' }}
+          disabled={pending}
+          onClick={() => {
+            onConfirm();
+            setAsking(false);
+          }}
+        >
+          Да
+        </button>
+      </span>
+    );
+  }
+  return iconOnly ? (
+    <button type="button" className="sk-btn sk-btn-icon" title={label} aria-label={label} onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
+      <Icon name="trash" className="w-4 h-4" />
+    </button>
+  ) : (
+    <button type="button" className="sk-btn sk-btn-outline" onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
+      <Icon name="trash" className="w-4 h-4" /> {label}
+    </button>
+  );
+}
+
+export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'block' }}>
+      <span style={{ display: 'block', fontSize: 12, color: 'var(--sk-muted)', marginBottom: 4 }}>{label}</span>
+      {children}
+      {hint ? <span style={{ display: 'block', fontSize: 12, color: 'var(--sk-muted)', marginTop: 4 }}>{hint}</span> : null}
+    </label>
+  );
+}
+
+export function ErrorText({ error }: { error: unknown }) {
+  if (!error) return null;
+  const msg = error instanceof Error ? error.message : String(error);
+  return <div role="alert" style={{ fontSize: 13, color: 'var(--sk-text-danger)' }}>{msg}</div>;
+}
+
 export function Empty({ text }: { text: string }) {
   return <div className="text-center text-[var(--sk-muted)] py-14 text-sm">{text}</div>;
 }
@@ -393,7 +487,7 @@ export function StageStrip({
           <div
             key={s.id}
             className={clsx(
-              'rounded-lg border px-3 py-3 text-center bg-white',
+              'rounded-lg border px-3 py-3 text-center bg-[var(--sk-panel)]',
               active ? 'border-[var(--sk-green)]' : 'border-[var(--sk-line)]',
             )}
           >
@@ -466,7 +560,7 @@ export function Modal({
   const mw = maxWidth ?? (wide ? 1100 : 480);
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.4)', cursor: 'pointer' }} aria-hidden />
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'var(--sk-overlay)', cursor: 'pointer' }} aria-hidden />
       <div
         ref={panelRef}
         role="dialog"
@@ -485,7 +579,7 @@ export function Modal({
           overflow: 'hidden',
           zIndex: 1,
           borderRadius: 'var(--sk-radius-xl)',
-          boxShadow: '0 20px 48px rgba(15, 23, 42, 0.16)',
+          boxShadow: 'var(--sk-shadow-pop)',
           outline: 'none',
         }}
       >

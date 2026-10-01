@@ -21,7 +21,7 @@ export default function OffersPage() {
     <AppShell title="Офферы" subtitle="Согласование и направление кандидату">
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-[#f3f7f9] text-left text-[var(--muted)]">
+          <thead className="bg-[var(--sk-soft)] text-left text-[var(--muted)]">
             <tr>
               <th className="px-4 py-3 font-semibold">Кандидат</th>
               <th className="px-4 py-3 font-semibold">Должность</th>
@@ -32,7 +32,7 @@ export default function OffersPage() {
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {(data?.items || []).map((o: any) => (
-              <tr key={o.id} className="hover:bg-[#f7fbfc]">
+              <tr key={o.id} className="hover:bg-[var(--sk-hover)]">
                 <td className="px-4 py-3 font-medium">{o.candidate ? fullName(o.candidate) : '—'}</td>
                 <td className="px-4 py-3">{o.position || '—'}</td>
                 <td className="px-4 py-3">{o.salary ? `${o.salary} ${o.currency}` : '—'}</td>

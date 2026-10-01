@@ -96,7 +96,7 @@ function AdminInner() {
             </div>
             <div className="max-h-96 overflow-auto">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-white">
+                <thead className="sticky top-0 bg-[var(--sk-panel)]">
                   <tr className="text-left text-xs text-[var(--muted)] border-b border-[var(--line)]">
                     <th className="py-2 pr-3 font-medium">Сотрудник</th>
                     <th className="py-2 pr-3 font-medium">Email (логин)</th>
@@ -197,7 +197,7 @@ function AdminInner() {
               <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
             ))}
           </Select>
-          {userMsg ? <div className="text-sm" style={{ color: '#b91c1c' }}>{userMsg}</div> : null}
+          {userMsg ? <div className="text-sm" style={{ color: 'var(--sk-text-danger)' }}>{userMsg}</div> : null}
           <Button
             disabled={!userForm.email || !userForm.password || userForm.password.length < 6 || !userForm.firstName || !userForm.lastName || createUser.isPending}
             onClick={() => createUser.mutate()}

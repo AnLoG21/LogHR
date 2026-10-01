@@ -21,7 +21,7 @@ export default function ChecksPage() {
     <AppShell title="Проверки" subtitle="СБ, заявка на приём, обратная связь">
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-[#f3f7f9] text-left text-[var(--muted)]">
+          <thead className="bg-[var(--sk-soft)] text-left text-[var(--muted)]">
             <tr>
               <th className="px-4 py-3 font-semibold">Тип</th>
               <th className="px-4 py-3 font-semibold">Кандидат</th>
@@ -31,7 +31,7 @@ export default function ChecksPage() {
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {(data?.items || []).map((c: any) => (
-              <tr key={c.id} className="hover:bg-[#f7fbfc]">
+              <tr key={c.id} className="hover:bg-[var(--sk-hover)]">
                 <td className="px-4 py-3">{ruLabel(CHECK_TYPE_LABELS, c.type)}</td>
                 <td className="px-4 py-3">{c.candidate ? fullName(c.candidate) : '—'}</td>
                 <td className="px-4 py-3"><Badge color={c.status === 'APPROVED' ? 'green' : c.status === 'REJECTED' ? 'rose' : 'amber'}>{ruLabel(CHECK_STATUS_LABELS, c.status)}</Badge></td>

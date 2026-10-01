@@ -3,7 +3,9 @@
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Button, Card, Input, Textarea } from '@/components/ui';
+import { Button, Card, Textarea } from '@/components/ui';
+import { QuestionField } from '@/components/question-field';
+import { normalizeQuestions } from '@/lib/questions';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -18,7 +20,8 @@ async function publicApi<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function PublicAssessmentPage() {
   const { token } = useParams<{ token: string }>();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [missing, setMissing] = useState<string | null>(null);
   const { data, error } = useQuery({
     queryKey: ['public-assessment', token],
     queryFn: () => publicApi<any>(`/assessments/public/${token}`),
@@ -31,8 +34,21 @@ export default function PublicAssessmentPage() {
       }),
   });
 
-  const questions: { id: string; text: string; type?: string }[] =
-    data?.questionnaire?.schema?.questions || [];
+  const questions = normalizeQuestions(data?.questionnaire?.schema);
+  const trySubmit = () => {
+    const empty = questions.find((q) => {
+      if (!q.required) return false;
+      const v = answers[q.id];
+      return v === undefined || v === '' || (Array.isArray(v) && !v.length);
+    });
+    if (empty) {
+      setMissing(empty.id);
+      document.getElementById(`q-${empty.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setMissing(null);
+    submit.mutate();
+  };
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--sk-bg)' }}>
@@ -52,24 +68,23 @@ export default function PublicAssessmentPage() {
             <div className="text-[var(--sk-green)] font-semibold text-lg">Ответы сохранены. Спасибо!</div>
           </Card>
         ) : data ? (
-          <Card className="p-6 space-y-4">
+          <Card className="p-6 space-y-6">
+            {questions.some((q) => q.required) ? (
+              <div className="text-xs text-[var(--sk-muted)]"><span className="text-[var(--sk-danger)]">*</span> — обязательный вопрос</div>
+            ) : null}
             {questions.length ? (
-              questions.map((q) => (
-                <div key={q.id}>
-                  <div className="text-sm font-semibold mb-2">{q.text}</div>
-                  {q.type === 'textarea' ? (
-                    <Textarea
-                      value={answers[q.id] || ''}
-                      onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                      placeholder="Ваш ответ"
-                    />
-                  ) : (
-                    <Input
-                      value={answers[q.id] || ''}
-                      onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                      placeholder="Ваш ответ"
-                    />
-                  )}
+              questions.map((q, i) => (
+                <div key={q.id} id={`q-${q.id}`}>
+                  <QuestionField
+                    index={i}
+                    question={q}
+                    value={answers[q.id]}
+                    onChange={(v) => {
+                      setAnswers((s) => ({ ...s, [q.id]: v }));
+                      if (missing === q.id) setMissing(null);
+                    }}
+                  />
+                  {missing === q.id ? <div role="alert" className="text-xs text-[var(--sk-danger)] mt-1">Ответьте на этот вопрос</div> : null}
                 </div>
               ))
             ) : (
@@ -79,10 +94,10 @@ export default function PublicAssessmentPage() {
                 placeholder="Свободный ответ"
               />
             )}
-            <Button disabled={submit.isPending} onClick={() => submit.mutate()}>
-              Отправить
+            <Button disabled={submit.isPending} onClick={trySubmit}>
+              {submit.isPending ? 'Отправляем…' : 'Отправить ответы'}
             </Button>
-            {submit.isError ? <div className="text-sm text-[var(--sk-danger)]">Не удалось отправить</div> : null}
+            {submit.isError ? <div className="text-sm text-[var(--sk-danger)]">Не удалось отправить. Проверьте ответы и попробуйте ещё раз.</div> : null}
           </Card>
         ) : !error ? (
           <p className="text-[var(--sk-muted)] text-center">Загрузка…</p>

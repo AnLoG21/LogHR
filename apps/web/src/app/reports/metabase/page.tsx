@@ -32,7 +32,7 @@ export default function MetabaseSsoPage() {
       <div className="text-sm text-[var(--muted)]">
         {error ? (
           <div>
-            <div style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</div>
+            <div style={{ color: 'var(--sk-text-danger)', marginBottom: 12 }}>{error}</div>
             <button type="button" className="sk-btn" onClick={() => router.push('/reports')}>Назад к отчётам</button>
           </div>
         ) : (

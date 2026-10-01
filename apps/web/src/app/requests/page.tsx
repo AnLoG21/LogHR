@@ -103,7 +103,7 @@ export default function RequestsPage() {
 
                 <div className="mt-4 pt-3 border-t border-[var(--sk-line)]">
                   <div className="text-[13px] font-semibold mb-2">Кандидаты</div>
-                  <div className="flex items-center justify-between rounded-md border border-[var(--sk-line)] px-3 py-2 text-[13px] bg-[#fafbfc]">
+                  <div className="flex items-center justify-between rounded-md border border-[var(--sk-line)] px-3 py-2 text-[13px] bg-[var(--sk-soft)]">
                     <span className="text-[var(--sk-muted)]">Уже оформлено</span>
                     <span className="w-6 h-6 rounded-full bg-[var(--sk-ink)] text-white text-[11px] font-bold grid place-items-center">0</span>
                   </div>
