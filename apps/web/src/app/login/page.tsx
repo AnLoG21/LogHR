@@ -48,7 +48,7 @@ export default function LoginPage() {
         <form onSubmit={onSubmit} className="login-form-wrap">
           <div style={{ marginBottom: 40, display: 'flex', alignItems: 'center', gap: 14 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="" width={48} height={48} style={{ display: 'block' }} />
+            <img src="/logo.png" alt="" width={48} height={48} style={{ display: 'block' }} />
             <div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{COMPANY_NAME}</div>
               <div style={{ fontSize: 14, color: '#8a9199', marginTop: 6 }}>ATS для подбора персонала</div>
@@ -108,7 +108,7 @@ export default function LoginPage() {
       <section className="login-geo" aria-hidden>
         <div className="login-geo-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="" width={88} height={88} style={{ display: 'block', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.25))' }} />
+          <img src="/logo.png" alt="" width={72} height={72} style={{ display: 'block', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.25))' }} />
           <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{COMPANY_NAME}</span>
         </div>
       </section>
