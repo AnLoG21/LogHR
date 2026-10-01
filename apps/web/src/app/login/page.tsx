@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { Icon } from '@/components/ui';
 
 export default function LoginPage() {
@@ -13,10 +14,25 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [brandName, setBrandName] = useState('LogHR');
 
   useEffect(() => {
     if (!loading && user) router.replace('/candidates');
   }, [loading, user, router]);
+
+  useEffect(() => {
+    api<any>('/branding')
+      .then((b) => {
+        if (b?.companyName) setBrandName(b.companyName);
+        if (typeof document !== 'undefined' && b?.primaryColor) {
+          document.documentElement.style.setProperty('--brand-primary', b.primaryColor);
+        }
+        if (typeof document !== 'undefined' && b?.secondaryColor) {
+          document.documentElement.style.setProperty('--brand-secondary', b.secondaryColor);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -45,7 +61,7 @@ export default function LoginPage() {
       <section className="login-form-pane">
         <form onSubmit={onSubmit} className="login-form-wrap">
           <div style={{ marginBottom: 40 }}>
-            <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>LogHR</div>
+            <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{brandName}</div>
             <div style={{ fontSize: 15, color: '#8a9199', marginTop: 8 }}>ATS для подбора персонала</div>
           </div>
 
@@ -104,14 +120,14 @@ export default function LoginPage() {
           <svg width="56" height="56" viewBox="0 0 40 40">
             <defs>
               <linearGradient id="lhlogin" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#14b8a6" />
-                <stop offset="100%" stopColor="#0f2744" />
+                <stop offset="0%" stopColor="#2dd4bf" />
+                <stop offset="100%" stopColor="#5eead4" />
               </linearGradient>
             </defs>
             <rect x="4" y="4" width="32" height="32" rx="8" fill="url(#lhlogin)" />
-            <path d="M13 14h3.8v8.5H27V26H13V14z" fill="#fff" />
+            <path d="M13 14h3.8v8.5H27V26H13V14z" fill="#0f2744" />
           </svg>
-          <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: '-0.02em' }}>LogHR</span>
+          <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: '-0.02em' }}>{brandName}</span>
         </div>
       </section>
     </div>

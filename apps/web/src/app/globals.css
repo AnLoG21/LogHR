@@ -269,8 +269,9 @@
     overflow: hidden;
     min-height: 100vh;
     background:
-      linear-gradient(135deg, rgba(255,255,255,0.15), transparent 40%),
-      linear-gradient(160deg, #ffe08a 0%, #ffb35c 28%, #ff8f6b 55%, #ff6b5c 78%, #e85d4c 100%);
+      radial-gradient(ellipse 80% 60% at 20% 90%, rgba(20, 184, 166, 0.35), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 90% 10%, rgba(61, 139, 156, 0.4), transparent 50%),
+      linear-gradient(145deg, #071825 0%, #0f2744 38%, #163a52 68%, #0d9488 100%);
   }
   @media (min-width: 1024px) {
     .login-geo {
@@ -279,23 +280,30 @@
       justify-content: center;
     }
   }
-  .login-geo::before,
-  .login-geo::after {
+  .login-geo::before {
     content: "";
     position: absolute;
-    inset: -20%;
+    inset: -30%;
     background:
-      linear-gradient(25deg, transparent 40%, rgba(255,255,255,0.22) 40.5%, rgba(255,255,255,0.22) 48%, transparent 48.5%),
-      linear-gradient(-18deg, transparent 55%, rgba(0,0,0,0.06) 55.5%, rgba(0,0,0,0.06) 62%, transparent 62.5%);
-    transform: skewX(-12deg);
+      repeating-linear-gradient(
+        -32deg,
+        transparent 0,
+        transparent 48px,
+        rgba(255, 255, 255, 0.035) 48px,
+        rgba(255, 255, 255, 0.035) 49px
+      );
     pointer-events: none;
   }
   .login-geo::after {
-    inset: -10% -30%;
-    background:
-      linear-gradient(48deg, transparent 30%, rgba(255,255,255,0.18) 30.5%, rgba(255,255,255,0.18) 38%, transparent 38.5%),
-      linear-gradient(-40deg, transparent 50%, rgba(255,120,80,0.35) 50.5%, rgba(255,120,80,0.35) 60%, transparent 60.5%);
-    opacity: 0.9;
+    content: "";
+    position: absolute;
+    width: 140%;
+    height: 55%;
+    left: -20%;
+    bottom: -18%;
+    background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.08) 45%, transparent 70%);
+    transform: skewY(-12deg);
+    pointer-events: none;
   }
   .login-geo-brand {
     position: relative;
@@ -303,7 +311,8 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    color: #111;
+    color: #fff;
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.25);
   }
 
   .app-shell {

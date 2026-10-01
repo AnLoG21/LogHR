@@ -21,18 +21,37 @@ export default function AdminPage() {
 
 function AdminInner() {
   const sp = useSearchParams();
-  const [tab, setTab] = useState<'main' | 'import'>(sp.get('tab') === 'import' ? 'import' : 'main');
+  const initial = sp.get('tab') === 'import' ? 'import' : sp.get('tab') === 'brand' ? 'brand' : 'main';
+  const [tab, setTab] = useState<'main' | 'import' | 'brand'>(initial);
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<any>('/users?pageSize=100') });
   const templates = useQuery({ queryKey: ['notif-templates'], queryFn: () => api<any>('/notifications/templates') });
   const pdn = useQuery({ queryKey: ['pdn'], queryFn: () => api<any>('/pdn') });
+  const branding = useQuery({ queryKey: ['branding'], queryFn: () => api<any>('/branding') });
   const integrations = useQuery({ queryKey: ['integrations'], queryFn: () => api<any[]>('/integrations/status') });
+  const [brandForm, setBrandForm] = useState({ companyName: '', primaryColor: '', secondaryColor: '' });
   const [importMsg, setImportMsg] = useState('');
   const [userOpen, setUserOpen] = useState(false);
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: SystemRole.RECRUITER as string,
   });
   const [userMsg, setUserMsg] = useState('');
+
+  const saveBrand = useMutation({
+    mutationFn: () =>
+      api('/branding', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyName: brandForm.companyName || branding.data?.companyName,
+          primaryColor: brandForm.primaryColor || branding.data?.primaryColor,
+          secondaryColor: brandForm.secondaryColor || branding.data?.secondaryColor,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['branding'] });
+      setBrandForm({ companyName: '', primaryColor: '', secondaryColor: '' });
+    },
+  });
 
   const createUser = useMutation({
     mutationFn: () => api('/users', { method: 'POST', body: JSON.stringify(userForm) }),
@@ -62,13 +81,66 @@ function AdminInner() {
   }
 
   return (
-    <AppShell title="Администрирование" subtitle="Пользователи, интеграции, ПДн, импорт/экспорт">
+    <AppShell title="Администрирование" subtitle="Пользователи, бренд, интеграции, импорт/экспорт">
       <div className="flex border-b border-[var(--sk-line)] mb-4">
         <button className={clsx('sk-tab', tab === 'main' && 'active')} onClick={() => setTab('main')}>Общее</button>
         <button className={clsx('sk-tab', tab === 'import' && 'active')} onClick={() => setTab('import')}>Импорт и экспорт</button>
+        <button className={clsx('sk-tab', tab === 'brand' && 'active')} onClick={() => setTab('brand')}>Брендирование</button>
       </div>
 
-      {tab === 'import' ? (
+      {tab === 'brand' ? (
+        <Card className="p-4 space-y-3 max-w-lg">
+          <div className="font-bold text-[var(--brand-primary)]">Брендирование LogHR</div>
+          <div className="text-xs text-[var(--muted)]">
+            Название видно в шапке. Цвета применяются к интерфейсу (кнопки, акценты). Сейчас: {branding.data?.companyName || '—'}
+          </div>
+          <label className="block text-sm">
+            Название компании
+            <Input
+              className="mt-1"
+              placeholder={branding.data?.companyName || 'LogHR'}
+              value={brandForm.companyName}
+              onChange={(e) => setBrandForm({ ...brandForm, companyName: e.target.value })}
+            />
+          </label>
+          <label className="block text-sm">
+            Основной цвет
+            <div className="flex gap-2 mt-1 items-center">
+              <input
+                type="color"
+                value={brandForm.primaryColor || branding.data?.primaryColor || '#0f2744'}
+                onChange={(e) => setBrandForm({ ...brandForm, primaryColor: e.target.value })}
+                aria-label="Основной цвет"
+              />
+              <Input
+                placeholder={branding.data?.primaryColor || '#0f2744'}
+                value={brandForm.primaryColor}
+                onChange={(e) => setBrandForm({ ...brandForm, primaryColor: e.target.value })}
+              />
+            </div>
+          </label>
+          <label className="block text-sm">
+            Дополнительный цвет
+            <div className="flex gap-2 mt-1 items-center">
+              <input
+                type="color"
+                value={brandForm.secondaryColor || branding.data?.secondaryColor || '#0d9488'}
+                onChange={(e) => setBrandForm({ ...brandForm, secondaryColor: e.target.value })}
+                aria-label="Дополнительный цвет"
+              />
+              <Input
+                placeholder={branding.data?.secondaryColor || '#0d9488'}
+                value={brandForm.secondaryColor}
+                onChange={(e) => setBrandForm({ ...brandForm, secondaryColor: e.target.value })}
+              />
+            </div>
+          </label>
+          <Button disabled={saveBrand.isPending} onClick={() => saveBrand.mutate()}>
+            {saveBrand.isPending ? 'Сохранение…' : 'Сохранить'}
+          </Button>
+          {saveBrand.isSuccess ? <div className="text-sm text-[var(--sk-green)]">Сохранено</div> : null}
+        </Card>
+      ) : tab === 'import' ? (
         <Card className="p-4 space-y-3 max-w-2xl">
           <div className="font-bold text-[var(--brand-primary)]">XLSX мастер</div>
           <div className="flex flex-wrap gap-2">

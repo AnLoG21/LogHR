@@ -115,7 +115,7 @@ export function AppShell({
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const [brand, setBrand] = useState<{ companyName: string } | null>(null);
+  const [brand, setBrand] = useState<{ companyName: string; primaryColor?: string; secondaryColor?: string } | null>(null);
   const [openNav, setOpenNav] = useState(false);
   const [menuQ, setMenuQ] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ main: true, tools: true, boards: true, settings: true });
@@ -126,7 +126,17 @@ export function AppShell({
 
   useEffect(() => {
     api<any>('/branding')
-      .then((b) => setBrand(b))
+      .then((b) => {
+        setBrand(b);
+        if (typeof document !== 'undefined') {
+          const root = document.documentElement;
+          if (b?.primaryColor) root.style.setProperty('--brand-primary', b.primaryColor);
+          if (b?.secondaryColor) {
+            root.style.setProperty('--brand-secondary', b.secondaryColor);
+            root.style.setProperty('--sk-green', b.secondaryColor);
+          }
+        }
+      })
       .catch(() => undefined);
   }, []);
 
