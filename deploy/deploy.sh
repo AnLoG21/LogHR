@@ -50,6 +50,7 @@ main() {
     $c build "$svc"
   done
   $c up -d --remove-orphans
+  $c exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
 
   local i
   for i in $(seq 1 40); do
