@@ -162,9 +162,18 @@ export class PublicationsService {
       if (tpl.body && typeof tpl.body === 'object') templateBody = tpl.body as Record<string, any>;
     }
 
-    const title = templateBody.title || vacancy.title;
-    const description = templateBody.description || vacancy.description || '';
-    const city = templateBody.city || vacancy.city || undefined;
+    const vars: Record<string, string> = {
+      vacancy: vacancy.title,
+      city: vacancy.city || '',
+      company: process.env.COMPANY_NAME || 'ТАЙМЫР ИНВЕСТ',
+      description: vacancy.description || '',
+      orgUnit: vacancy.orgUnit?.name || '',
+    };
+    const fill = (s?: string) =>
+      s ? s.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, k: string) => vars[k] ?? '') : s;
+    const title = fill(templateBody.title) || vacancy.title;
+    const description = fill(templateBody.description) || vacancy.description || '';
+    const city = fill(templateBody.city) || vacancy.city || undefined;
 
     const adapter = getJobBoardAdapter(data.board);
     const publication = await this.prisma.publication.create({

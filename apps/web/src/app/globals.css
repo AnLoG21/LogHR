@@ -567,3 +567,62 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-rise { animation: riseIn 0.28s ease both; }
+
+/* Template token chips (shared by message and publication editors) */
+.tok-editor {
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: text;
+  line-height: 1.9;
+}
+.tok-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #9fd8b1;
+  background: #e7f6ec;
+  color: #14532d;
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  vertical-align: baseline;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.tok-chip::before {
+  content: "⋮⋮";
+  font-size: 0.75em;
+  letter-spacing: -2px;
+  opacity: 0.45;
+}
+.tok-chip:hover {
+  border-color: var(--brand-primary, #1ea64a);
+  box-shadow: 0 1px 3px rgba(20, 83, 45, 0.15);
+}
+.tok-chip:active { cursor: grabbing; }
+.tok-chip-palette {
+  padding: 4px 12px;
+  font-size: 13px;
+  background: #fff;
+  border-width: 2px;
+}
+.tok-chip-dragging { opacity: 0.35; }
+.tok-caret {
+  position: absolute;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--brand-primary, #1ea64a);
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(30, 166, 74, 0.25);
+  animation: tok-blink 0.9s steps(2, start) infinite;
+}
+@keyframes tok-blink {
+  to { visibility: hidden; }
+}

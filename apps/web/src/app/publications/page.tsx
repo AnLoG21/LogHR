@@ -1,9 +1,10 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select, Textarea } from '@/components/ui';
+import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select } from '@/components/ui';
+import { TokenField, TokenPalette, VACANCY_TOKENS, humanizeTemplate, type TokenFieldHandle } from '@/components/template-composer';
 import { api } from '@/lib/api';
 import clsx from 'clsx';
 import { JOB_BOARD_LABELS, PUBLICATION_STATUS_LABELS, ruLabel } from '@skillaz/shared';
@@ -29,7 +30,11 @@ function PublicationsInner() {
   const [templateId, setTemplateId] = useState('');
   const [tplOpen, setTplOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [tplForm, setTplForm] = useState({ name: '', board: 'HH', title: '', description: '', city: '', bodyJson: '' });
+  const emptyTpl = { name: '', board: 'HH', title: '', description: '', city: '', pay: true, extra: {} as Record<string, unknown> };
+  const [tplForm, setTplForm] = useState(emptyTpl);
+  const titleRef = useRef<TokenFieldHandle>(null);
+  const descRef = useRef<TokenFieldHandle>(null);
+  const tplFocus = useRef<'title' | 'description'>('description');
 
   const pubs = useQuery({ queryKey: ['publications'], queryFn: () => api<any>('/publications') });
   const templates = useQuery({
@@ -92,18 +97,13 @@ function PublicationsInner() {
 
   const saveTpl = useMutation({
     mutationFn: async () => {
-      let body: Record<string, unknown> = {
+      const body: Record<string, unknown> = {
+        ...tplForm.extra,
         title: tplForm.title || undefined,
         description: tplForm.description || undefined,
         city: tplForm.city || undefined,
+        pay: tplForm.pay,
       };
-      if (tplForm.bodyJson.trim()) {
-        try {
-          body = { ...body, ...JSON.parse(tplForm.bodyJson) };
-        } catch {
-          throw new Error('Некорректный JSON в доп. полях');
-        }
-      }
       const payload = { name: tplForm.name, board: tplForm.board, body };
       if (editId) {
         return api(`/publications/templates/${editId}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -125,13 +125,13 @@ function PublicationsInner() {
 
   function openCreate() {
     setEditId(null);
-    setTplForm({ name: '', board: 'HH', title: '', description: '', city: '', bodyJson: '' });
+    setTplForm(emptyTpl);
     setTplOpen(true);
   }
 
   function openEdit(t: any) {
     const body = (t.body && typeof t.body === 'object' ? t.body : {}) as Record<string, any>;
-    const { title, description, city, ...rest } = body;
+    const { title, description, city, pay, ...rest } = body;
     setEditId(t.id);
     setTplForm({
       name: t.name || '',
@@ -139,7 +139,8 @@ function PublicationsInner() {
       title: title || '',
       description: description || '',
       city: city || '',
-      bodyJson: Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '',
+      pay: pay !== false,
+      extra: rest,
     });
     setTplOpen(true);
   }
@@ -264,7 +265,7 @@ function PublicationsInner() {
           <Card className="divide-y divide-[var(--line)]">
             {(templates.data || []).map((t: any) => {
               const body = t.body && typeof t.body === 'object' ? t.body : {};
-              const preview = body.title || body.description || body.template || '—';
+              const preview = humanizeTemplate(body.title || body.description || '') || 'Данные берутся из вакансии';
               return (
                 <div key={t.id} className="px-4 py-3 text-sm flex justify-between gap-3 items-start">
                   <div>
@@ -339,16 +340,56 @@ function PublicationsInner() {
         </>
       )}
 
-      <Modal open={tplOpen} title={editId ? 'Изменить шаблон' : 'Новый шаблон'} onClose={() => setTplOpen(false)}>
+      <Modal open={tplOpen} title={editId ? 'Изменить шаблон' : 'Новый шаблон'} onClose={() => setTplOpen(false)} maxWidth={640}>
         <div className="space-y-3">
-          <Input placeholder="Название" value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
-          <Select value={tplForm.board} onChange={(e) => setTplForm({ ...tplForm, board: e.target.value })}>
-            {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
-          </Select>
-          <Input placeholder="Заголовок вакансии (опц.)" value={tplForm.title} onChange={(e) => setTplForm({ ...tplForm, title: e.target.value })} />
-          <Textarea placeholder="Описание (опц.)" value={tplForm.description} onChange={(e) => setTplForm({ ...tplForm, description: e.target.value })} />
-          <Input placeholder="Город (опц.)" value={tplForm.city} onChange={(e) => setTplForm({ ...tplForm, city: e.target.value })} />
-          <Textarea placeholder='Доп. JSON, напр. {"pay":true}' value={tplForm.bodyJson} onChange={(e) => setTplForm({ ...tplForm, bodyJson: e.target.value })} />
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Название шаблона</div>
+              <Input placeholder="Например, «Водители — Норильск»" value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Площадка</div>
+              <Select value={tplForm.board} onChange={(e) => setTplForm({ ...tplForm, board: e.target.value })}>
+                {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
+              </Select>
+            </div>
+          </div>
+
+          <TokenPalette
+            tokens={VACANCY_TOKENS}
+            hint="Данные подставятся из вакансии при публикации. Перетащите в текст или нажмите."
+            onInsert={(key) => (tplFocus.current === 'title' ? titleRef : descRef).current?.insertToken(key)}
+          />
+
+          <div>
+            <div className="text-xs text-[var(--muted)] mb-1">Заголовок объявления</div>
+            <TokenField
+              ref={titleRef}
+              value={tplForm.title}
+              onChange={(title) => setTplForm((f) => ({ ...f, title }))}
+              onFocus={() => { tplFocus.current = 'title'; }}
+              placeholder="Пусто — возьмём название вакансии"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-[var(--muted)] mb-1">Описание</div>
+            <TokenField
+              ref={descRef}
+              value={tplForm.description}
+              onChange={(description) => setTplForm((f) => ({ ...f, description }))}
+              onFocus={() => { tplFocus.current = 'description'; }}
+              multiline
+              placeholder="Пусто — возьмём описание вакансии"
+            />
+          </div>
+          <div>
+            <div className="text-xs text-[var(--muted)] mb-1">Город</div>
+            <Input placeholder="Пусто — возьмём город вакансии" value={tplForm.city} onChange={(e) => setTplForm({ ...tplForm, city: e.target.value })} />
+          </div>
+          <label className="text-sm flex items-center gap-2">
+            <input type="checkbox" checked={tplForm.pay} onChange={(e) => setTplForm({ ...tplForm, pay: e.target.checked })} />
+            Указывать зарплату в объявлении
+          </label>
           {saveTpl.isError ? <div className="text-sm text-rose-600">{(saveTpl.error as Error)?.message || 'Ошибка'}</div> : null}
           <Button disabled={!tplForm.name || saveTpl.isPending} onClick={() => saveTpl.mutate()}>
             {editId ? 'Сохранить' : 'Создать'}

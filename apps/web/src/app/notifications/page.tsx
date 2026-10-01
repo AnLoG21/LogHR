@@ -3,13 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Badge, Button, Card, Empty, Modal } from '@/components/ui';
-import {
-  TemplateComposer,
-  displayToTokens,
-  tokensToDisplay,
-  unwrapHtmlBody,
-  wrapHtmlBody,
-} from '@/components/template-composer';
+import { TemplateComposer, humanizeTemplate, unwrapHtmlBody, wrapHtmlBody } from '@/components/template-composer';
 import { api } from '@/lib/api';
 import { NOTIFICATION_CHANNEL_LABELS, NOTIFICATION_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 
@@ -60,8 +54,8 @@ function openEdit(t: any): EditState {
   return {
     id: t.id,
     code: t.code,
-    subject: tokensToDisplay(t.subject || ''),
-    body: tokensToDisplay(unwrapped.text),
+    subject: t.subject || '',
+    body: unwrapped.text,
     isActive: !!t.isActive,
     wrapP: unwrapped.wrapP,
     channel: t.channel,
@@ -81,8 +75,8 @@ export default function NotificationsPage() {
       return api(`/notifications/templates/${edit.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          subject: displayToTokens(edit.subject),
-          body: wrapHtmlBody(displayToTokens(edit.body), edit.wrapP),
+          subject: edit.subject,
+          body: wrapHtmlBody(edit.body, edit.wrapP),
           isActive: edit.isActive,
         }),
       });
@@ -136,7 +130,7 @@ export default function NotificationsPage() {
                   <Badge color={t.isActive ? 'green' : 'amber'}>{t.isActive ? 'вкл' : 'выкл'}</Badge>
                 </div>
                 <div className="text-xs text-[var(--muted)] mt-0.5 truncate">
-                  {ruLabel(NOTIFICATION_CHANNEL_LABELS, t.channel || 'EMAIL')} · {tokensToDisplay(t.subject || '')}
+                  {ruLabel(NOTIFICATION_CHANNEL_LABELS, t.channel || 'EMAIL')} · {humanizeTemplate(t.subject || '')}
                 </div>
               </button>
             ))}
