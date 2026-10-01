@@ -147,6 +147,7 @@ function CandidateDetailInner() {
   });
 
   const [approveLink, setApproveLink] = useState('');
+  const [mergeOpen, setMergeOpen] = useState(false);
   const createCheck = useMutation({
     mutationFn: (type: string) =>
       api('/checks', { method: 'POST', body: JSON.stringify({ candidateId: id, type }) }),
@@ -292,6 +293,7 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
                 <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
               </Button>
+              <Button variant="ghost" onClick={() => setMergeOpen(true)}>Дубликаты</Button>
               <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
                 На согласование
               </Button>
@@ -524,7 +526,75 @@ function CandidateDetailInner() {
           {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
       </Modal>
+
+      <MergeDuplicatesModal
+        open={mergeOpen}
+        candidateId={id}
+        onClose={() => setMergeOpen(false)}
+        onMerged={() => {
+          setMergeOpen(false);
+          qc.invalidateQueries({ queryKey: ['candidate', id] });
+        }}
+      />
     </AppShell>
+  );
+}
+
+function MergeDuplicatesModal({
+  open, candidateId, onClose, onMerged,
+}: {
+  open: boolean; candidateId: string; onClose: () => void; onMerged: () => void;
+}) {
+  const dups = useQuery({
+    queryKey: ['candidate-dups', candidateId],
+    queryFn: () => api<any[]>(`/candidates/${candidateId}/duplicates`),
+    enabled: open,
+  });
+  const merge = useMutation({
+    mutationFn: (mergeId: string) =>
+      api(`/candidates/${candidateId}/merge`, { method: 'POST', body: JSON.stringify({ mergeId }) }),
+    onSuccess: onMerged,
+  });
+  return (
+    <Modal open={open} title="Возможные дубликаты" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--sk-muted)' }}>
+          Найдены по телефону, email или ФИО. При слиянии история и вложения переносятся сюда, дубликат обезличивается.
+        </div>
+        {dups.isLoading ? <div style={{ color: 'var(--sk-muted)' }}>Ищем…</div> : null}
+        {!dups.isLoading && !(dups.data || []).length ? (
+          <div style={{ fontSize: 13 }}>Других совпадений нет</div>
+        ) : null}
+        {(dups.data || []).map((d: any) => (
+          <div
+            key={d.id}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+              padding: 10, border: '1px solid var(--sk-line)', borderRadius: 8, fontSize: 13,
+            }}
+          >
+            <div>
+              <Link href={`/candidates/${d.id}`} className="sk-link" style={{ fontWeight: 600 }}>
+                {fullName(d)}
+              </Link>
+              <div style={{ color: 'var(--sk-muted)', marginTop: 2 }}>
+                {[d.phone, d.email, d.vacancy?.title, d.stage?.name].filter(Boolean).join(' · ') || '—'}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              disabled={merge.isPending}
+              onClick={() => {
+                if (confirm(`Слить «${fullName(d)}» в текущую карточку?`)) merge.mutate(d.id);
+              }}
+            >
+              Слить сюда
+            </Button>
+          </div>
+        ))}
+        {merge.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(merge.error as Error).message}</div> : null}
+      </div>
+    </Modal>
   );
 }
 

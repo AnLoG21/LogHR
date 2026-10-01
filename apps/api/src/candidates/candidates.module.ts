@@ -541,6 +541,122 @@ export class CandidatesService {
     }
   }
 
+  async findDuplicatesOf(id: string) {
+    const c = await this.prisma.candidate.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException();
+    const dups = await this.findDuplicates({
+      phone: c.phone || undefined,
+      email: c.email || undefined,
+      firstName: c.firstName,
+      lastName: c.lastName,
+    });
+    return dups.filter((d) => d.id !== id);
+  }
+
+  /**
+   * Keep keepId, move history/attachments from mergeId onto it, then depersonalize the duplicate.
+   */
+  async merge(keepId: string, mergeId: string, user: AuthUser) {
+    if (keepId === mergeId) throw new BadRequestException('Нельзя слить кандидата с самим собой');
+    const [keep, merge] = await Promise.all([
+      this.prisma.candidate.findUnique({ where: { id: keepId }, include: { tags: true } }),
+      this.prisma.candidate.findUnique({ where: { id: mergeId }, include: { tags: true } }),
+    ]);
+    if (!keep || !merge) throw new NotFoundException();
+    if (keep.isDepersonalized || merge.isDepersonalized) {
+      throw new BadRequestException('Один из кандидатов уже обезличен');
+    }
+    if (merge.duplicateOfId) throw new BadRequestException('Кандидат уже помечен как дубликат');
+
+    const keepTagIds = new Set(keep.tags.map((t) => t.tagId));
+    const newTags = merge.tags.filter((t) => !keepTagIds.has(t.tagId)).map((t) => t.tagId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.comment.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.attachment.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.candidateStatusHistory.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.check.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.offer.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.candidateResponse.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.assessmentAssignment.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.task.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+        tx.proActionResult.updateMany({ where: { candidateId: mergeId }, data: { candidateId: keepId } }),
+      ]);
+      if (newTags.length) {
+        await tx.candidateTag.createMany({
+          data: newTags.map((tagId) => ({ candidateId: keepId, tagId })),
+          skipDuplicates: true,
+        });
+      }
+      await tx.candidateTag.deleteMany({ where: { candidateId: mergeId } });
+
+      const fill = <T>(a: T | null | undefined, b: T | null | undefined) => (a != null && a !== '' ? a : b);
+      await tx.candidate.update({
+        where: { id: keepId },
+        data: {
+          middleName: fill(keep.middleName, merge.middleName),
+          phone: fill(keep.phone, merge.phone),
+          email: fill(keep.email, merge.email),
+          city: fill(keep.city, merge.city),
+          address: fill(keep.address, merge.address),
+          birthDate: fill(keep.birthDate, merge.birthDate),
+          gender: fill(keep.gender, merge.gender),
+          citizenship: fill(keep.citizenship, merge.citizenship),
+          about: fill(keep.about, merge.about),
+          currentPosition: fill(keep.currentPosition, merge.currentPosition),
+          desiredPosition: fill(keep.desiredPosition, merge.desiredPosition),
+          resumeUrl: fill(keep.resumeUrl, merge.resumeUrl),
+          resumeText: (keep.resumeText?.length || 0) >= (merge.resumeText?.length || 0)
+            ? keep.resumeText
+            : merge.resumeText,
+          vacancyId: keep.vacancyId || merge.vacancyId,
+          hiringRequestId: keep.hiringRequestId || merge.hiringRequestId,
+          stageId: keep.stageId || merge.stageId,
+          stageChangedAt: keep.stageChangedAt || merge.stageChangedAt,
+          externalId: keep.externalId || merge.externalId,
+          salaryExpect: keep.salaryExpect ?? merge.salaryExpect,
+          assigneeId: keep.assigneeId || merge.assigneeId,
+          isFavorite: keep.isFavorite || merge.isFavorite,
+          isTracked: keep.isTracked || merge.isTracked,
+          pdnConsentAt: keep.pdnConsentAt || merge.pdnConsentAt,
+          meetingAt: keep.meetingAt || merge.meetingAt,
+          aiScore: keep.aiScore ?? merge.aiScore,
+        },
+      });
+
+      await tx.candidate.update({
+        where: { id: mergeId },
+        data: {
+          duplicateOfId: keepId,
+          isDepersonalized: true,
+          firstName: 'Дубликат',
+          lastName: keepId.slice(0, 8),
+          middleName: null,
+          phone: null,
+          email: null,
+          address: null,
+          about: null,
+          resumeText: null,
+          resumeUrl: null,
+          stageId: null,
+          vacancyId: null,
+          hiringRequestId: null,
+        },
+      });
+
+      await tx.comment.create({
+        data: {
+          candidateId: keepId,
+          authorId: user.id,
+          body: `Слит дубликат ${merge.lastName} ${merge.firstName} (${mergeId.slice(0, 8)})`,
+        },
+      });
+    });
+
+    return this.get(keepId);
+  }
+
   async addComment(id: string, body: string, user: AuthUser) {
     await this.ensureExists(id);
     return this.prisma.comment.create({
@@ -767,6 +883,22 @@ export class CandidatesController {
   @Post('dedupe/check')
   checkDupe(@Body() dto: { phone?: string; email?: string; firstName?: string; lastName?: string }) {
     return this.service.findDuplicates(dto);
+  }
+
+  @Get(':id/duplicates')
+  duplicatesOf(@Param('id') id: string) {
+    return this.service.findDuplicatesOf(id);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER)
+  @Post(':id/merge')
+  merge(
+    @Param('id') id: string,
+    @Body() dto: { mergeId: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!dto.mergeId) throw new BadRequestException('Укажите mergeId');
+    return this.service.merge(id, dto.mergeId, user);
   }
 }
 
