@@ -25,7 +25,12 @@ function deviceId() {
   if (typeof window === 'undefined') return undefined;
   let id = localStorage.getItem('deviceId');
   if (!id) {
-    id = crypto.randomUUID();
+    id =
+      globalThis.crypto?.randomUUID?.() ??
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
     localStorage.setItem('deviceId', id);
   }
   return id;
