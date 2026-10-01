@@ -119,7 +119,9 @@ export class CandidatesService {
         ],
       });
     }
-    if (query.vacancyId) and.push({ vacancyId: query.vacancyId });
+    if (query.vacancyId) {
+      and.push({ OR: [{ vacancyId: query.vacancyId }, { vacancy: { parentId: query.vacancyId } }] });
+    }
     if (query.hiringRequestId) and.push({ hiringRequestId: query.hiringRequestId });
     if (query.stageId) and.push({ stageId: query.stageId });
     if (stageIds.length) and.push({ stageId: { in: stageIds } });

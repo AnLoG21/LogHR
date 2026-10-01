@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Prisma, SystemRole } from '@prisma/client';
-import { IsArray, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
@@ -12,12 +12,13 @@ import { pageResult, paginate } from '../common/pagination';
 export class VacanciesService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { page?: number; pageSize?: number; search?: string; isActive?: boolean }) {
+  async list(query: { page?: number; pageSize?: number; search?: string; isActive?: boolean; topLevel?: boolean }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where: Prisma.VacancyWhereInput = {
       AND: [
         query.search ? { title: { contains: query.search } } : {},
         query.isActive === undefined ? {} : { isActive: query.isActive },
+        query.topLevel ? { parentId: null } : {},
       ],
     };
     const [items, total] = await Promise.all([
@@ -30,6 +31,11 @@ export class VacanciesService {
           candidateProfile: { select: { id: true, name: true } },
           orgUnit: { select: { id: true, name: true } },
           funnel: { include: { stages: { orderBy: { order: 'asc' } } } },
+          parent: { select: { id: true, title: true } },
+          children: {
+            select: { id: true, city: true, isActive: true, _count: { select: { candidates: true } } },
+            orderBy: { city: 'asc' },
+          },
           _count: { select: { candidates: true, hiringRequests: true, publications: true } },
         },
       }),
@@ -47,21 +53,60 @@ export class VacanciesService {
         funnel: { include: { stages: { orderBy: { order: 'asc' } } } },
         hiringRequests: true,
         publications: { orderBy: { createdAt: 'desc' } },
-        candidates: {
-          include: { stage: true },
-          orderBy: { stageChangedAt: 'desc' },
-          take: 100,
+        parent: { select: { id: true, title: true, city: true } },
+        children: {
+          include: {
+            _count: { select: { candidates: true, publications: true } },
+            publications: { select: { id: true, board: true, status: true, url: true }, orderBy: { createdAt: 'desc' } },
+          },
+          orderBy: { city: 'asc' },
         },
       },
     });
     if (!item) throw new NotFoundException();
 
-    const stageCounters = await this.prisma.candidate.groupBy({
-      by: ['stageId'],
-      where: { vacancyId: id },
-      _count: true,
+    const vacancyIds = [id, ...item.children.map((c) => c.id)];
+    const [candidates, stageCounters] = await Promise.all([
+      this.prisma.candidate.findMany({
+        where: { vacancyId: { in: vacancyIds } },
+        include: { stage: true, vacancy: { select: { id: true, city: true } } },
+        orderBy: { stageChangedAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.candidate.groupBy({
+        by: ['stageId'],
+        where: { vacancyId: { in: vacancyIds } },
+        _count: true,
+      }),
+    ]);
+    return { ...item, candidates, stageCounters };
+  }
+
+  /** Adds per-city child vacancies that share the master's funnel and profile. */
+  async addCities(id: string, cities: string[]) {
+    const master = await this.prisma.vacancy.findUnique({ where: { id }, include: { children: true } });
+    if (!master) throw new NotFoundException();
+    if (master.parentId) throw new BadRequestException('Города добавляются только к мастер-вакансии');
+    const existing = new Set(
+      [master.city, ...master.children.map((c) => c.city)].filter(Boolean).map((c) => c!.trim().toLowerCase()),
+    );
+    const toCreate = [...new Set(cities.map((c) => c.trim()).filter(Boolean))]
+      .filter((c) => !existing.has(c.toLowerCase()));
+    if (!toCreate.length) throw new BadRequestException('Эти города уже есть');
+    await this.prisma.vacancy.createMany({
+      data: toCreate.map((city) => ({
+        title: master.title,
+        description: master.description,
+        city,
+        isActive: master.isActive,
+        isPublicApply: master.isPublicApply,
+        orgUnitId: master.orgUnitId,
+        candidateProfileId: master.candidateProfileId,
+        funnelId: master.funnelId,
+        parentId: master.id,
+      })),
     });
-    return { ...item, stageCounters };
+    return this.get(id);
   }
 
   async getPublic(id: string) {
@@ -175,6 +220,21 @@ export class VacanciesService {
   }>) {
     const exists = await this.prisma.vacancy.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException();
+    if (exists.parentId && data.funnelId != null && data.funnelId !== exists.funnelId) {
+      throw new BadRequestException('Воронка наследуется от мастер-вакансии');
+    }
+    if (!exists.parentId) {
+      const inherited: Prisma.VacancyUpdateManyMutationInput = {
+        ...(data.funnelId != null ? { funnelId: data.funnelId } : {}),
+        ...(data.description != null ? { description: data.description } : {}),
+      };
+      if (Object.keys(inherited).length) {
+        await this.prisma.vacancy.updateMany({ where: { parentId: id }, data: inherited });
+      }
+      if (data.title != null && data.title !== exists.title) {
+        await this.prisma.vacancy.updateMany({ where: { parentId: id, title: exists.title }, data: { title: data.title } });
+      }
+    }
     await this.prisma.vacancy.update({
       where: { id },
       data: {
@@ -202,6 +262,10 @@ class CreateVacancyDto {
   @IsOptional() @IsBoolean() isPublicApply?: boolean;
 }
 
+class AddCitiesDto {
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(50) @IsString({ each: true }) cities!: string[];
+}
+
 @ApiTags('vacancies')
 @ApiBearerAuth()
 @Controller('vacancies')
@@ -214,12 +278,14 @@ export class VacanciesController {
     @Query('pageSize') pageSize?: number,
     @Query('search') search?: string,
     @Query('isActive') isActive?: string,
+    @Query('topLevel') topLevel?: string,
   ) {
     return this.service.list({
       page,
       pageSize,
       search,
       isActive: isActive === undefined ? undefined : isActive === 'true',
+      topLevel: topLevel === 'true',
     });
   }
 
@@ -264,6 +330,12 @@ export class VacanciesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: Partial<CreateVacancyDto> & { isActive?: boolean; extra?: Record<string, unknown> }) {
     return this.service.update(id, dto);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER)
+  @Post(':id/cities')
+  addCities(@Param('id') id: string, @Body() dto: AddCitiesDto) {
+    return this.service.addCities(id, dto.cities);
   }
 }
 

@@ -11,7 +11,7 @@ export default function VacanciesPage() {
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['vacancies'],
-    queryFn: () => api<any>('/vacancies?pageSize=50'),
+    queryFn: () => api<any>('/vacancies?pageSize=50&topLevel=true'),
   });
   const profiles = useQuery({ queryKey: ['profiles-mini'], queryFn: () => api<any>('/profiles?pageSize=100') });
   const funnels = useQuery({ queryKey: ['funnels'], queryFn: () => api<any[]>('/funnels') });
@@ -44,8 +44,17 @@ export default function VacanciesPage() {
                 </div>
                 <Badge color={v.isActive ? 'green' : 'slate'}>{v.isActive ? 'Активна' : 'Архив'}</Badge>
               </div>
+              {v.children?.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Badge color="blue">Мастер · {v.children.length + (v.city ? 1 : 0)} гор.</Badge>
+                  {v.children.slice(0, 6).map((c: any) => (
+                    <Badge key={c.id} color={c.isActive ? 'slate' : 'amber'}>{c.city} · {c._count?.candidates ?? 0}</Badge>
+                  ))}
+                  {v.children.length > 6 ? <Badge color="slate">+{v.children.length - 6}</Badge> : null}
+                </div>
+              ) : null}
               <div className="mt-3 flex gap-3 text-xs text-[var(--muted)]">
-                <span>Кандидаты: {v._count?.candidates ?? 0}</span>
+                <span>Кандидаты: {(v._count?.candidates ?? 0) + (v.children || []).reduce((s: number, c: any) => s + (c._count?.candidates ?? 0), 0)}</span>
                 <span>Заявки: {v._count?.hiringRequests ?? 0}</span>
                 <span>Публикации: {v._count?.publications ?? 0}</span>
               </div>
