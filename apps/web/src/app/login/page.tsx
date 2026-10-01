@@ -8,8 +8,9 @@ import { Icon } from '@/components/ui';
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState('admin@loghr.local');
-  const [password, setPassword] = useState('admin123');
+  const isDev = process.env.NODE_ENV !== 'production';
+  const [email, setEmail] = useState(isDev ? 'admin@loghr.local' : '');
+  const [password, setPassword] = useState(isDev ? 'admin123' : '');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
