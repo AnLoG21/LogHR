@@ -22,6 +22,7 @@ export default function PublicApplyPage() {
     queryKey: ['public-vacancy', id],
     queryFn: () => publicApi<any>(`/vacancies/public/${id}`),
   });
+  const pdn = useQuery({ queryKey: ['public-pdn'], queryFn: () => publicApi<any>('/pdn/public') });
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -72,6 +73,12 @@ export default function PublicApplyPage() {
               <input type="checkbox" checked={form.pdnConsent} onChange={(e) => setForm({ ...form, pdnConsent: e.target.checked })} />
               <span>Согласен(на) на обработку персональных данных</span>
             </label>
+            {[pdn.data?.consent, pdn.data?.policy].filter(Boolean).map((d: any) => (
+              <details key={d.id} className="text-xs text-[var(--muted)]">
+                <summary className="cursor-pointer">{d.title}</summary>
+                <div className="mt-1 whitespace-pre-wrap">{d.content}</div>
+              </details>
+            ))}
             {apply.isError ? <div className="text-sm text-rose-600">{(apply.error as Error)?.message}</div> : null}
             <Button
               disabled={!form.firstName || !form.lastName || !form.pdnConsent || apply.isPending}

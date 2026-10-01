@@ -21,34 +21,18 @@ export default function AdminPage() {
 
 function AdminInner() {
   const sp = useSearchParams();
-  const initial = sp.get('tab') === 'import' ? 'import' : sp.get('tab') === 'brand' ? 'brand' : 'main';
-  const [tab, setTab] = useState<'main' | 'import' | 'brand'>(initial);
+  const [tab, setTab] = useState<'main' | 'import'>(sp.get('tab') === 'import' ? 'import' : 'main');
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<any>('/users?pageSize=100') });
   const templates = useQuery({ queryKey: ['notif-templates'], queryFn: () => api<any>('/notifications/templates') });
   const pdn = useQuery({ queryKey: ['pdn'], queryFn: () => api<any>('/pdn') });
-  const branding = useQuery({ queryKey: ['branding'], queryFn: () => api<any>('/branding') });
   const integrations = useQuery({ queryKey: ['integrations'], queryFn: () => api<any[]>('/integrations/status') });
-  const [brandForm, setBrandForm] = useState({ companyName: '', primaryColor: '', secondaryColor: '' });
   const [importMsg, setImportMsg] = useState('');
   const [userOpen, setUserOpen] = useState(false);
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: SystemRole.RECRUITER as string,
   });
   const [userMsg, setUserMsg] = useState('');
-
-  const saveBrand = useMutation({
-    mutationFn: () =>
-      api('/branding', {
-        method: 'POST',
-        body: JSON.stringify({
-          companyName: brandForm.companyName || branding.data?.companyName,
-          primaryColor: brandForm.primaryColor || branding.data?.primaryColor,
-          secondaryColor: brandForm.secondaryColor || branding.data?.secondaryColor,
-        }),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['branding'] }),
-  });
 
   const createUser = useMutation({
     mutationFn: () => api('/users', { method: 'POST', body: JSON.stringify(userForm) }),
@@ -78,22 +62,13 @@ function AdminInner() {
   }
 
   return (
-    <AppShell title="Администрирование" subtitle="Пользователи, бренд, интеграции, импорт/экспорт">
+    <AppShell title="Администрирование" subtitle="Пользователи, интеграции, ПДн, импорт/экспорт">
       <div className="flex border-b border-[var(--sk-line)] mb-4">
         <button className={clsx('sk-tab', tab === 'main' && 'active')} onClick={() => setTab('main')}>Общее</button>
         <button className={clsx('sk-tab', tab === 'import' && 'active')} onClick={() => setTab('import')}>Импорт и экспорт</button>
-        <button className={clsx('sk-tab', tab === 'brand' && 'active')} onClick={() => setTab('brand')}>Брендирование</button>
       </div>
 
-      {tab === 'brand' ? (
-        <Card className="p-4 space-y-3 max-w-lg">
-          <div className="font-bold text-[var(--brand-primary)]">Брендирование LogHR</div>
-          <Input placeholder={branding.data?.companyName || 'Название'} value={brandForm.companyName} onChange={(e) => setBrandForm({ ...brandForm, companyName: e.target.value })} />
-          <Input placeholder={branding.data?.primaryColor || '#0f2744'} value={brandForm.primaryColor} onChange={(e) => setBrandForm({ ...brandForm, primaryColor: e.target.value })} />
-          <Input placeholder={branding.data?.secondaryColor || '#0d9488'} value={brandForm.secondaryColor} onChange={(e) => setBrandForm({ ...brandForm, secondaryColor: e.target.value })} />
-          <Button onClick={() => saveBrand.mutate()}>Сохранить</Button>
-        </Card>
-      ) : tab === 'import' ? (
+      {tab === 'import' ? (
         <Card className="p-4 space-y-3 max-w-2xl">
           <div className="font-bold text-[var(--brand-primary)]">XLSX мастер</div>
           <div className="flex flex-wrap gap-2">
@@ -114,6 +89,56 @@ function AdminInner() {
         </Card>
       ) : (
         <div className="grid lg:grid-cols-2 gap-4">
+          <Card className="p-4 lg:col-span-2">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-bold text-[var(--brand-primary)]">Пользователи</div>
+              <Button onClick={() => setUserOpen(true)}>Добавить</Button>
+            </div>
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-left text-xs text-[var(--muted)] border-b border-[var(--line)]">
+                    <th className="py-2 pr-3 font-medium">Сотрудник</th>
+                    <th className="py-2 pr-3 font-medium">Email (логин)</th>
+                    <th className="py-2 pr-3 font-medium">Роль в системе</th>
+                    <th className="py-2 pr-3 font-medium">Статус</th>
+                    <th className="py-2 font-medium text-right">Доступ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(users.data?.items || []).map((u: any) => (
+                    <tr key={u.id} className="border-b border-[var(--line)]">
+                      <td className="py-2 pr-3 font-medium">{u.lastName} {u.firstName}</td>
+                      <td className="py-2 pr-3 text-[var(--muted)]">{u.email}</td>
+                      <td className="py-2 pr-3">
+                        <Select
+                          value={u.role}
+                          onChange={(e) => patchUser.mutate({ id: u.id, body: { role: e.target.value } })}
+                          style={{ height: 32, fontSize: 12, maxWidth: 220 }}
+                        >
+                          {ROLES.map((r) => (
+                            <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
+                          ))}
+                        </Select>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Badge color={u.isActive ? 'green' : 'amber'}>{u.isActive ? 'Активен' : 'Отключён'}</Badge>
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          onClick={() => patchUser.mutate({ id: u.id, body: { isActive: !u.isActive } })}
+                        >
+                          {u.isActive ? 'Отключить' : 'Включить'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
           <Card className="p-4">
             <div className="font-bold text-[var(--brand-primary)] mb-3">Интеграции</div>
             <div className="space-y-2">
@@ -126,56 +151,16 @@ function AdminInner() {
                 </div>
               ))}
             </div>
-            <a className="text-sm text-[var(--brand-secondary)] underline block mt-3" href="http://localhost:3001/api/docs" target="_blank" rel="noreferrer">
+            <a className="text-sm text-[var(--brand-secondary)] underline block mt-3" href={`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/docs`} target="_blank" rel="noreferrer">
               OpenAPI / Swagger для 1С
             </a>
           </Card>
 
-          <Card className="p-4 space-y-3">
-            <div className="font-bold text-[var(--brand-primary)]">Брендирование</div>
-            <Input placeholder={branding.data?.companyName || 'Название'} value={brandForm.companyName} onChange={(e) => setBrandForm({ ...brandForm, companyName: e.target.value })} />
-            <Input placeholder={branding.data?.primaryColor || '#0B2A3D'} value={brandForm.primaryColor} onChange={(e) => setBrandForm({ ...brandForm, primaryColor: e.target.value })} />
-            <Input placeholder={branding.data?.secondaryColor || '#3D8B9C'} value={brandForm.secondaryColor} onChange={(e) => setBrandForm({ ...brandForm, secondaryColor: e.target.value })} />
-            <Button onClick={() => saveBrand.mutate()}>Сохранить</Button>
-          </Card>
-
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-bold text-[var(--brand-primary)]">Пользователи</div>
-              <Button onClick={() => setUserOpen(true)}>Добавить</Button>
+            <div className="font-bold text-[var(--brand-primary)]">ПДн (152-ФЗ)</div>
+            <div className="text-xs text-[var(--muted)] mt-1 mb-3">
+              Политика обработки и текст согласия, которые видит кандидат в публичной форме отклика. Отметка о согласии сохраняется в карточке кандидата.
             </div>
-            <div className="space-y-2 max-h-96 overflow-auto">
-              {(users.data?.items || []).map((u: any) => (
-                <div key={u.id} className="flex flex-wrap gap-2 justify-between text-sm border-b border-[var(--line)] pb-2 items-center">
-                  <div>
-                    <div className="font-medium">{u.lastName} {u.firstName}</div>
-                    <div className="text-xs text-[var(--muted)]">{u.email}</div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <Select
-                      value={u.role}
-                      onChange={(e) => patchUser.mutate({ id: u.id, body: { role: e.target.value } })}
-                      style={{ height: 32, fontSize: 12, maxWidth: 160 }}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
-                      ))}
-                    </Select>
-                    <Button
-                      variant="ghost"
-                      onClick={() => patchUser.mutate({ id: u.id, body: { isActive: !u.isActive } })}
-                    >
-                      {u.isActive ? 'Выкл.' : 'Вкл.'}
-                    </Button>
-                    <Badge color={u.isActive ? 'green' : 'amber'}>{u.isActive ? 'активен' : 'выкл'}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="font-bold text-[var(--brand-primary)] mb-3">ПДн</div>
             {(pdn.data || []).map((d: any) => (
               <div key={d.id} className="mb-3 text-sm">
                 <div className="font-medium">{d.title}</div>

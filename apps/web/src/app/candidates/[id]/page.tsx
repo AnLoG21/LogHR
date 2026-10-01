@@ -42,7 +42,6 @@ function CandidateDetailInner() {
   const [editOpen, setEditOpen] = useState(sp.get('edit') === '1');
   const [formType, setFormType] = useState(STATUS_FORMS[0].id);
   const [formData, setFormData] = useState<Record<string, string>>({});
-  const [aiBox, setAiBox] = useState<any>(null);
   const [editForm, setEditForm] = useState({
     firstName: '', lastName: '', middleName: '', phone: '', email: '', city: '', gender: '',
   });
@@ -104,6 +103,7 @@ function CandidateDetailInner() {
     onSuccess: () => {
       setEditOpen(false);
       qc.invalidateQueries({ queryKey: ['candidate', id] });
+      qc.invalidateQueries({ queryKey: ['candidate-ai', id] });
       qc.invalidateQueries({ queryKey: ['candidates'] });
     },
   });
@@ -156,13 +156,15 @@ function CandidateDetailInner() {
     },
   });
 
-  const score = useMutation({
-    mutationFn: () => api(`/ai/candidates/${id}/score`, { method: 'POST', body: '{}' }),
-    onSuccess: (res) => setAiBox(res),
+  const insights = useQuery({
+    queryKey: ['candidate-ai', id],
+    queryFn: () => api<any>(`/ai/candidates/${id}/insights`),
+    staleTime: 5 * 60_000,
+    retry: false,
   });
-  const hints = useMutation({
-    mutationFn: () => api(`/ai/candidates/${id}/hints`, { method: 'POST', body: '{}' }),
-    onSuccess: (res) => setAiBox(res),
+  const refreshInsights = useMutation({
+    mutationFn: () => api<any>(`/ai/candidates/${id}/insights?refresh=1`),
+    onSuccess: (res) => qc.setQueryData(['candidate-ai', id], res),
   });
 
   if (isLoading || !c) {
@@ -263,11 +265,15 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
               <Button variant="ghost" onClick={() => setTab('history')}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone}>Позвонить</Button>
-              <Button variant="ghost" onClick={() => score.mutate()} disabled={score.isPending}>AI скоринг</Button>
-              <Button variant="ghost" onClick={() => hints.mutate()} disabled={hints.isPending}>AI подсказки</Button>
             </div>
-            {aiBox ? <AiResult data={aiBox} onClose={() => setAiBox(null)} /> : null}
           </Card>
+
+          <AiWidgets
+            data={insights.data}
+            loading={insights.isLoading || refreshInsights.isPending}
+            error={insights.isError}
+            onRefresh={() => refreshInsights.mutate()}
+          />
 
           <Card style={{ overflow: 'hidden' }}>
             <div style={{ padding: '0 20px', borderBottom: '1px solid var(--sk-line)', display: 'flex', overflowX: 'auto' }}>
@@ -455,38 +461,75 @@ function CandidateDetailInner() {
   );
 }
 
-function AiResult({ data, onClose }: { data: any; onClose: () => void }) {
-  const hints: string[] = Array.isArray(data.hints) ? data.hints : [];
-  const risks: string[] = Array.isArray(data.risks) ? data.risks : [];
-  const summary = data.data?.summary || data.summary;
+function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: boolean; error: boolean; onRefresh: () => void }) {
+  const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+  const hints = list(data?.hints);
+  const risks = list(data?.risks);
+  const strengths = list(data?.strengths);
+  const score = typeof data?.score === 'number' ? data.score : null;
+  const tone = score == null ? '#64748b' : score >= 75 ? '#059669' : score >= 50 ? '#d97706' : '#dc2626';
+  const source = !data
+    ? ''
+    : data.stub
+      ? 'Эвристика (AI-провайдер недоступен)'
+      : String(data.provider || '').startsWith('openrouter')
+        ? 'OpenRouter'
+        : 'AI';
+  const placeholder = (text: string) => <div style={{ fontSize: 13, color: 'var(--sk-muted)' }}>{text}</div>;
+  const header = (title: string) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+      <div style={{ fontWeight: 600 }}>{title}</div>
+      {source ? <div style={{ fontSize: 11, color: 'var(--sk-muted)' }}>{source}</div> : null}
+    </div>
+  );
+
   return (
-    <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-        <strong>{hints.length ? 'AI подсказки для интервью' : 'AI скоринг'}</strong>
-        <button type="button" className="sk-link" onClick={onClose} style={{ fontSize: 12 }}>Скрыть</button>
-      </div>
-      {data.stub ? (
-        <div style={{ color: 'var(--sk-muted)', fontSize: 12, marginBottom: 6 }}>
-          {data.note || 'Демо-режим: AI-провайдер не подключён (AI_* или OPENROUTER_API_KEY), показан эвристический результат.'}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+      <Card style={{ padding: 16 }}>
+        {header('AI скоринг')}
+        {loading && !data ? placeholder('Анализируем профиль…') : error && !data ? placeholder('Не удалось получить оценку') : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div
+                style={{
+                  width: 64, height: 64, borderRadius: '50%', flexShrink: 0,
+                  display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 700, color: tone,
+                  background: `conic-gradient(${tone} ${(score ?? 0) * 3.6}deg, var(--sk-line) 0deg)`,
+                }}
+              >
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#fff', display: 'grid', placeItems: 'center' }}>
+                  {score ?? '—'}
+                </div>
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.45 }}>{data?.rationale}</div>
+            </div>
+            {strengths.length ? (
+              <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: '#047857' }}>
+                {strengths.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            ) : null}
+            {risks.length ? (
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.5, color: '#b91c1c' }}>
+                {risks.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            ) : null}
+          </>
+        )}
+      </Card>
+      <Card style={{ padding: 16, display: 'flex', flexDirection: 'column' }}>
+        {header('AI подсказки для интервью')}
+        {loading && !data ? placeholder('Готовим вопросы…') : error && !data ? placeholder('Не удалось получить подсказки') : hints.length ? (
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {hints.map((h, i) => <li key={i}>{h}</li>)}
+          </ol>
+        ) : placeholder('Подсказок нет')}
+        <div style={{ marginTop: 'auto', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--sk-muted)' }}>
+          <span>{data?.generatedAt ? `Обновлено ${new Date(data.generatedAt).toLocaleString('ru-RU')}` : ''}</span>
+          <button type="button" className="sk-link" onClick={onRefresh} disabled={loading} style={{ fontSize: 12 }}>
+            {loading ? 'Обновляем…' : 'Пересчитать'}
+          </button>
         </div>
-      ) : String(data.provider || '').startsWith('openrouter') ? (
-        <div style={{ color: 'var(--sk-muted)', fontSize: 12, marginBottom: 6 }}>Ответ через OpenRouter (резервный провайдер)</div>
-      ) : null}
-      {typeof data.score === 'number' && !hints.length ? (
-        <div style={{ fontSize: 20, fontWeight: 700 }}>{data.score} / 100</div>
-      ) : null}
-      {data.rationale && !hints.length ? <div>{data.rationale}</div> : null}
-      {summary ? <div>{summary}</div> : null}
-      {hints.length ? (
-        <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {hints.map((h, i) => <li key={i}>{h}</li>)}
-        </ul>
-      ) : null}
-      {risks.length && !hints.length ? (
-        <div style={{ marginTop: 6 }}>
-          <span style={{ color: '#b91c1c', fontWeight: 600 }}>Риски: </span>{risks.join('; ')}
-        </div>
-      ) : null}
+      </Card>
     </div>
   );
 }

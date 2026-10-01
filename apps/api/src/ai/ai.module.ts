@@ -1,4 +1,5 @@
-import { Body, Controller, Injectable, Logger, Module, Param, Post } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { Body, Controller, Get, Injectable, Logger, Module, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { fetch as undiciFetch, ProxyAgent } from 'undici';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,6 +53,164 @@ export function aiProviders(): AiProvider[] {
 
 function parseJson(raw: string) {
   return JSON.parse(raw.replace(/```json|```/g, '').trim());
+}
+
+type InsightInput = {
+  city: string | null;
+  currentPosition: string | null;
+  desiredPosition: string | null;
+  salaryExpect: number | null;
+  lastJobMonths: number | null;
+  willingToRelocate: boolean;
+  employmentType: string | null;
+  workSchedule: string | null;
+  hasPhone: boolean;
+  hasEmail: boolean;
+  pdnConsent: boolean;
+  resume: string;
+  vacancy: { title: string; city: string | null; description: string | null; profile?: string | null } | null;
+};
+
+const SKILLS: { name: string; re: RegExp }[] = [
+  { name: 'SQL', re: /\bsql\b|clickhouse|postgres/i },
+  { name: 'Python', re: /python|pandas/i },
+  { name: 'A/B-тесты', re: /a\/b/i },
+  { name: 'Excel', re: /excel/i },
+  { name: '1С', re: /1с/i },
+  { name: 'BI-дашборды', re: /superset|datalens|power ?bi|tableau/i },
+  { name: 'гидропоника/светокультура', re: /гидропон|светокульт/i },
+  { name: 'защита растений', re: /защит[аы] растений|сзр/i },
+  { name: 'управление командой', re: /команд[аы] \d+|наставни/i },
+  { name: 'английский', re: /английск|english/i },
+];
+
+const STOP_WORDS = new Set(['и', 'в', 'на', 'по', 'для', 'с', 'к', 'от', 'до', 'the', 'of']);
+
+function words(s?: string | null) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .split(/[^a-zа-я0-9]+/i)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+    .map((w) => w.slice(0, 6));
+}
+
+function overlap(a: string[], b: string[]) {
+  if (!a.length || !b.length) return 0;
+  const set = new Set(b);
+  return a.filter((w) => set.has(w)).length / a.length;
+}
+
+function months(n: number) {
+  if (n < 12) return `${n} мес.`;
+  const y = Math.floor(n / 12);
+  const m = n % 12;
+  return m ? `${y} г. ${m} мес.` : `${y} г.`;
+}
+
+const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+
+export function heuristicInsights(i: InsightInput) {
+  let score = 30;
+  const strengths: string[] = [];
+  const risks: string[] = [];
+  const hints: string[] = [];
+  const vacancyTitle = i.vacancy?.title?.split('—')[0].trim();
+  const target = words(`${i.vacancy?.title || ''} ${i.vacancy?.profile || ''}`);
+
+  const posFit = Math.max(overlap(target, words(i.currentPosition)), overlap(words(i.currentPosition), target));
+  const desiredFit = Math.max(overlap(target, words(i.desiredPosition)), overlap(words(i.desiredPosition), target));
+  const resumeFit = overlap(target, words(i.resume));
+  if (posFit >= 0.5) {
+    score += 22;
+    strengths.push(`Текущая должность «${i.currentPosition}» совпадает с профилем вакансии`);
+  } else if (posFit > 0 || desiredFit >= 0.5) {
+    score += posFit > 0 ? 12 : 5;
+    strengths.push(`Целится в позицию «${i.desiredPosition || vacancyTitle}»`);
+    hints.push(`Опыт «${i.currentPosition || 'не указан'}» лишь частично совпадает с вакансией — попросите привести примеры задач, близких к «${vacancyTitle}»`);
+  } else if (i.vacancy) {
+    risks.push(`Профиль «${i.currentPosition || 'не указан'}» далёк от вакансии «${vacancyTitle}»`);
+    hints.push(`Выясните мотивацию сменить сферу: почему кандидат из «${i.currentPosition || 'другой области'}» хочет в «${vacancyTitle}»`);
+  }
+  if (resumeFit >= 0.5) score += 6;
+
+  const len = i.resume.length;
+  if (len >= 450) {
+    score += 12;
+    strengths.push('Подробное резюме с описанием обязанностей и результатов');
+  } else if (len >= 200) {
+    score += 6;
+  } else {
+    risks.push(len ? 'Очень краткое резюме' : 'Резюме не заполнено');
+    hints.push('Резюме скудное — пройдитесь по последним двум местам работы: задачи, масштаб, результаты');
+  }
+  const achievements = (i.resume.match(/\d+\s?%|\+\d+|\d+\+|\d+\s?(га|человек|тест)/gi) || []).length;
+  if (achievements >= 2) {
+    score += 6;
+    strengths.push('В резюме есть измеримые результаты');
+    hints.push('Попросите раскрыть один из цифровых результатов из резюме: что именно сделал сам кандидат и как это измеряли');
+  }
+
+  const m = i.lastJobMonths;
+  if (m != null) {
+    if (m >= 36) {
+      score += 10;
+      strengths.push(`Стабильность: ${months(m)} на последнем месте`);
+      hints.push(`На последнем месте ${months(m)} — узнайте, что сейчас мотивирует к смене работы`);
+    } else if (m >= 12) {
+      score += 5;
+    } else {
+      score -= 4;
+      risks.push(`Короткий стаж на последнем месте (${months(m)})`);
+      hints.push(`Уточните причины ухода после ${months(m)} на последнем месте и что важно в новом работодателе`);
+    }
+  }
+
+  const vCity = i.vacancy?.city;
+  if (vCity && i.city) {
+    if (vCity.toLowerCase() === i.city.toLowerCase()) {
+      score += 8;
+      strengths.push(`Живёт в городе вакансии (${vCity})`);
+    } else if (i.willingToRelocate) {
+      score += 3;
+      hints.push(`Кандидат из г. ${i.city}, готов к переезду в ${vCity} — обсудите сроки переезда и нужна ли компенсация жилья`);
+    } else {
+      score -= 8;
+      risks.push(`Живёт в г. ${i.city}, вакансия в г. ${vCity}, к переезду не готов`);
+      hints.push(`Проверьте, рассматривает ли кандидат работу в г. ${vCity} или удалённый формат вообще допустим`);
+    }
+  }
+
+  if (i.salaryExpect) {
+    hints.push(`Ожидания по доходу ${rub(i.salaryExpect)} — сверьте с вилкой вакансии и обсудите структуру (оклад/премия)`);
+    if (i.salaryExpect >= 300000 && (posFit < 0.5 || (m ?? 0) < 12)) {
+      score -= 6;
+      risks.push(`Завышенные ожидания (${rub(i.salaryExpect)}) относительно опыта`);
+    }
+  }
+  if (i.workSchedule && /удал/i.test(i.workSchedule) && vCity) {
+    hints.push(`Предпочитает формат «${i.workSchedule}» — заранее проговорите формат работы по вакансии`);
+  }
+  if (i.workSchedule && /вахт/i.test(i.workSchedule)) strengths.push('Готов(а) к вахтовому методу');
+
+  if (i.hasPhone) score += 3;
+  else {
+    risks.push('Нет телефона');
+    hints.push('Нет телефона — запросите контакт для оперативной связи');
+  }
+  if (i.hasEmail) score += 2;
+  else risks.push('Нет email — не уйдут письма и приглашения');
+  if (!i.pdnConsent) risks.push('Нет согласия на обработку ПДн');
+
+  score = Math.max(5, Math.min(95, score));
+  for (const h of ['Уточните релевантный опыт за последние 2–3 года', 'Уточните срок выхода и есть ли параллельные предложения']) {
+    if (hints.length < 3) hints.push(h);
+  }
+  const level = score >= 75 ? 'высокое' : score >= 50 ? 'среднее' : 'низкое';
+  const rationale = i.vacancy
+    ? `Соответствие вакансии «${vacancyTitle}» — ${level}. Учтены должность, резюме, стаж, город и контакты.`
+    : `Кандидат не привязан к вакансии — оценка по полноте профиля (${level}).`;
+  return { score, rationale, strengths: strengths.slice(0, 5), risks: risks.slice(0, 5), hints: hints.slice(0, 5) };
 }
 
 @Injectable()
@@ -135,77 +294,81 @@ export class AiService {
     };
   }
 
-  private async candidatePayload(candidateId: string) {
+  async scoreCandidate(candidateId: string) {
+    const { score, rationale, risks, strengths, ...meta } = await this.insights(candidateId, true);
+    return { ...meta, score, rationale, risks, strengths };
+  }
+
+  async insights(candidateId: string, refresh = false): Promise<Record<string, any>> {
     const c = await this.prisma.candidate.findUnique({
       where: { id: candidateId },
       include: { vacancy: { include: { candidateProfile: true } } },
     });
-    if (!c) return null;
-    return {
-      c,
-      payload: {
-        name: `${c.lastName} ${c.firstName}`,
-        city: c.city,
-        resume: (c.resumeText || c.about || '').slice(0, 6000),
-        vacancy: c.vacancy?.title,
-        profile: c.vacancy?.candidateProfile?.name,
-        desired: c.desiredPosition,
-      },
+    if (!c) throw new NotFoundException('Кандидат не найден');
+    const input = {
+      name: `${c.lastName} ${c.firstName}`,
+      city: c.city,
+      currentPosition: c.currentPosition,
+      desiredPosition: c.desiredPosition,
+      salaryExpect: c.salaryExpect,
+      lastJobMonths: c.lastJobMonths,
+      willingToRelocate: c.willingToRelocate,
+      employmentType: c.employmentType,
+      workSchedule: c.workSchedule,
+      hasPhone: !!c.phone,
+      hasEmail: !!c.email,
+      pdnConsent: !!c.pdnConsentAt,
+      resume: (c.resumeText || c.about || '').slice(0, 6000),
+      vacancy: c.vacancy ? { title: c.vacancy.title, city: c.vacancy.city, description: c.vacancy.description, profile: c.vacancy.candidateProfile?.name } : null,
     };
-  }
+    const inputHash = createHash('sha1').update(JSON.stringify(input)).digest('hex');
+    const extra = (c.extra && typeof c.extra === 'object' ? c.extra : {}) as Record<string, any>;
+    const cached = extra.ai;
+    // Heuristic results are retried on the next view so a later-configured provider gets used.
+    if (!refresh && cached?.inputHash === inputHash && (!cached.stub || !this.configured())) {
+      return { ...cached, cached: true };
+    }
 
-  async scoreCandidate(candidateId: string) {
-    const found = await this.candidatePayload(candidateId);
-    if (!found) return { configured: this.configured(), score: 0, rationale: 'Кандидат не найден', risks: [] as string[] };
-    const { c, payload } = found;
+    let result = null as Record<string, any> | null;
     const res = await this.chat([
       {
         role: 'system',
-        content: 'Score candidate fit 0-100 for vacancy. Answer in Russian. Reply JSON: {score:number,rationale:string,risks:string[]}',
+        content:
+          'Ты помощник рекрутера. Оцени соответствие кандидата вакансии 0-100 и подготовь подсказки для интервью. Отвечай по-русски. ' +
+          'Ответ строго JSON: {"score":number,"rationale":string,"strengths":string[],"risks":string[],"hints":string[]} (3-5 подсказок, конкретных для этого кандидата).',
       },
-      { role: 'user', content: JSON.stringify(payload) },
+      { role: 'user', content: JSON.stringify(input) },
     ]);
     if (res) {
       try {
-        return { configured: true, stub: false, provider: res.provider, ...parseJson(res.content) };
+        const p = parseJson(res.content);
+        result = {
+          configured: true,
+          stub: false,
+          provider: res.provider,
+          score: Math.max(0, Math.min(100, Math.round(Number(p.score) || 0))),
+          rationale: String(p.rationale || ''),
+          strengths: Array.isArray(p.strengths) ? p.strengths.map(String) : [],
+          risks: Array.isArray(p.risks) ? p.risks.map(String) : [],
+          hints: Array.isArray(p.hints) ? p.hints.map(String) : [],
+        };
       } catch {
-        return { configured: true, stub: false, provider: res.provider, score: 50, rationale: res.content, risks: [] };
+        result = null;
       }
     }
-    const len = (payload.resume || '').length;
-    return {
-      ...this.stubMeta(),
-      score: Math.min(92, 40 + Math.floor(len / 40)),
-      rationale: 'Эвристический скоринг по объёму резюме и наличию контактов.',
-      risks: c.phone ? [] : ['Нет телефона'],
-    };
+    if (!result) result = { ...this.stubMeta(), ...heuristicInsights(input) };
+
+    const stored: Record<string, any> = { ...result, inputHash, generatedAt: new Date().toISOString() };
+    await this.prisma.candidate.update({
+      where: { id: candidateId },
+      data: { aiScore: stored.score, extra: { ...extra, ai: stored } as any },
+    });
+    return { ...stored, cached: false };
   }
 
   async hints(candidateId: string) {
-    const found = await this.candidatePayload(candidateId);
-    const c = found?.c;
-    const res = found
-      ? await this.chat([
-          { role: 'system', content: 'Give 3-5 short interview hints for a recruiter in Russian. Reply JSON: {hints:string[]}' },
-          { role: 'user', content: JSON.stringify(found.payload) },
-        ])
-      : null;
-    if (res) {
-      try {
-        return { configured: true, stub: false, provider: res.provider, ...parseJson(res.content) };
-      } catch {
-        return { configured: true, stub: false, provider: res.provider, hints: [res.content] };
-      }
-    }
-    return {
-      ...this.stubMeta(),
-      hints: [
-        'Уточните релевантный опыт за последние 2–3 года',
-        'Проверьте готовность к релокации / вахте',
-        'Спросите про ожидания по доходу и сроку выхода',
-        ...(c?.phone ? [] : ['Нет телефона — запросите контакт']),
-      ],
-    };
+    const { hints, ...meta } = await this.insights(candidateId);
+    return { ...meta, hints };
   }
 }
 
@@ -228,6 +391,11 @@ export class AiController {
   @Post('candidates/:id/hints')
   hints(@Param('id') id: string) {
     return this.service.hints(id);
+  }
+
+  @Get('candidates/:id/insights')
+  insights(@Param('id') id: string, @Query('refresh') refresh?: string) {
+    return this.service.insights(id, refresh === '1' || refresh === 'true');
   }
 
   @Post('status')

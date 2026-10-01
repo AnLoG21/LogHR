@@ -213,28 +213,9 @@ async function main() {
   const stageNew = funnel1.stages.find((s) => s.code === 'NEW')!;
   const stagePhone = funnel1.stages.find((s) => s.code === 'PHONE')!;
 
-  const candidates = [
-    { firstName: 'Константин', lastName: 'Смирнов', phone: '+79001112233', email: 'ksmirnov@mail.ru', city: 'Норильск', stageId: stagePhone.id, vacancyId: vacancy.id },
-    { firstName: 'Виктория', lastName: 'Миронова', phone: '+79002223344', email: 'vmironova@mail.ru', city: 'Норильск', stageId: stageNew.id, vacancyId: vacancy.id },
-    { firstName: 'Алексей', lastName: 'Иванов', phone: '+79003334455', email: 'aivanov@mail.ru', city: 'Москва', stageId: funnel2.stages.find((s) => s.code === 'NEW')!.id, vacancyId: vacancy2.id },
-  ];
-
-  for (const c of candidates) {
-    await prisma.candidate.create({
-      data: {
-        ...c,
-        source: 'HH',
-        addType: 'RESPONSE',
-        hiringRequestId: c.vacancyId === vacancy.id ? request.id : undefined,
-        stageChangedAt: new Date(),
-        pdnConsentAt: new Date(),
-        currentPosition: 'Специалист',
-        statusHistory: {
-          create: { stageId: c.stageId, comment: 'Импорт демо-данных' },
-        },
-      },
-    });
-  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { applyDemoCandidates } = require('./demo-enrich.cjs');
+  await applyDemoCandidates(prisma, { hiringRequestByVacancyId: { [vacancy.id]: request.id } });
 
   const categories = [
     { name: 'Приоритет', allowMultiple: false, tags: ['Горячий', 'Тёплый', 'Холодный'] },
