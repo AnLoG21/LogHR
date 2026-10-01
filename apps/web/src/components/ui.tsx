@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { forwardRef, useEffect, useMemo, useState, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { NAV_GROUPS, ROLE_LABELS, SystemRole } from '@skillaz/shared';
 import { useAuth } from '@/lib/auth';
@@ -305,22 +305,29 @@ export function Button({
   );
 }
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={clsx('sk-input', props.className)} />;
-}
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input(props, ref) {
+    return <input ref={ref} {...props} className={clsx('sk-input', props.className)} />;
+  },
+);
 
-export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={clsx('sk-input', props.className)} />;
-}
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function Select(props, ref) {
+    return <select ref={ref} {...props} className={clsx('sk-input', props.className)} />;
+  },
+);
 
-export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={clsx('sk-input !h-auto py-2.5 min-h-[88px]', props.className)}
-    />
-  );
-}
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea(props, ref) {
+    return (
+      <textarea
+        ref={ref}
+        {...props}
+        className={clsx('sk-input !h-auto py-2.5 min-h-[88px]', props.className)}
+      />
+    );
+  },
+);
 
 export function Badge({ children, color = 'slate' }: { children: React.ReactNode; color?: string }) {
   const map: Record<string, string> = {

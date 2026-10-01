@@ -170,12 +170,15 @@ function AdminInner() {
           </Card>
 
           <Card className="p-4 lg:col-span-2">
-            <div className="font-bold text-[var(--brand-primary)] mb-3">Email-шаблоны ({templates.data?.length || 0})</div>
+            <div className="font-bold text-[var(--brand-primary)] mb-1">Шаблоны сообщений ({templates.data?.length || 0})</div>
+            <div className="text-xs text-[var(--muted)] mb-3">
+              Редактирование — в разделе «Шаблоны писем»: подстановки вставляются кнопками (Имя, Ссылка…), без технического кода.
+            </div>
             <div className="max-h-80 overflow-auto space-y-2">
               {(templates.data || []).map((t: any) => (
                 <div key={t.id} className="text-sm border-b border-[var(--line)] pb-2">
-                  <div className="font-medium">{t.code}</div>
-                  <div className="text-xs text-[var(--muted)]">{t.subject}</div>
+                  <div className="font-medium">{t.subject || 'Без темы'}</div>
+                  <div className="text-xs text-[var(--muted)]">{t.isActive ? 'активен' : 'выключен'}</div>
                 </div>
               ))}
             </div>

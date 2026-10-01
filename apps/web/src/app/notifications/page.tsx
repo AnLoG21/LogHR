@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select, Textarea } from '@/components/ui';
+import { AppShell, Badge, Button, Card, Empty, Modal } from '@/components/ui';
+import {
+  TemplateComposer,
+  displayToTokens,
+  tokensToDisplay,
+  unwrapHtmlBody,
+  wrapHtmlBody,
+} from '@/components/template-composer';
 import { api } from '@/lib/api';
 import { NOTIFICATION_CHANNEL_LABELS, NOTIFICATION_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 
@@ -11,6 +18,22 @@ const TEMPLATE_TITLES: Record<string, string> = {
   REJECT_CANDIDATE: 'Отказ кандидату',
   OFFER_SENT: 'Оффер кандидату',
   PDN_REQUEST: 'Запрос согласия на ПДн',
+  ASSESSMENT_INVITE: 'Приглашение к оценке',
+  CANDIDATE_STAGE: 'Смена этапа кандидата',
+  CHECK_ASSIGNED: 'Назначена проверка',
+  OFFER_ACCEPTED: 'Оффер принят',
+  OFFER_MANAGER: 'Оффер на согласовании',
+  HIRE_READY: 'Кандидат к оформлению',
+  FEEDBACK_REQUEST: 'Запрос обратной связи',
+  TASK_ASSIGNED: 'Новая задача',
+  VACANCY_PUBLISHED: 'Вакансия опубликована',
+  REQUEST_PENDING: 'Заявка на согласовании',
+  REQUEST_APPROVED: 'Заявка согласована',
+  REQUEST_REJECTED: 'Заявка отклонена',
+  REQUEST_PAUSED: 'Заявка приостановлена',
+  REQUEST_CLOSED: 'Заявка закрыта',
+  WELCOME: 'Добро пожаловать',
+  PASSWORD_RESET: 'Сброс пароля',
   WA_FIRST_CONTACT: 'WhatsApp: первый контакт',
   WA_INTERVIEW_INVITE: 'WhatsApp: приглашение',
   WA_REMINDER: 'WhatsApp: напоминание',
@@ -19,26 +42,51 @@ const TEMPLATE_TITLES: Record<string, string> = {
 };
 
 function titleOf(t: { code: string; subject?: string }) {
-  return TEMPLATE_TITLES[t.code] || t.subject || t.code;
+  return TEMPLATE_TITLES[t.code] || t.subject || 'Шаблон';
+}
+
+type EditState = {
+  id: string;
+  code: string;
+  subject: string;
+  body: string;
+  isActive: boolean;
+  wrapP: boolean;
+  channel?: string;
+};
+
+function openEdit(t: any): EditState {
+  const unwrapped = unwrapHtmlBody(t.body || '');
+  return {
+    id: t.id,
+    code: t.code,
+    subject: tokensToDisplay(t.subject || ''),
+    body: tokensToDisplay(unwrapped.text),
+    isActive: !!t.isActive,
+    wrapP: unwrapped.wrapP,
+    channel: t.channel,
+  };
 }
 
 export default function NotificationsPage() {
   const qc = useQueryClient();
-  const [edit, setEdit] = useState<any | null>(null);
+  const [edit, setEdit] = useState<EditState | null>(null);
   const [channel, setChannel] = useState<'ALL' | 'EMAIL' | 'WHATSAPP'>('ALL');
   const templates = useQuery({ queryKey: ['notif-templates'], queryFn: () => api<any[]>('/notifications/templates') });
   const logs = useQuery({ queryKey: ['notif-logs'], queryFn: () => api<any>('/notifications/logs').catch(() => []) });
 
   const save = useMutation({
-    mutationFn: () =>
-      api(`/notifications/templates/${edit.id}`, {
+    mutationFn: () => {
+      if (!edit) throw new Error('Нет шаблона');
+      return api(`/notifications/templates/${edit.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          subject: edit.subject,
-          body: edit.body,
+          subject: displayToTokens(edit.subject),
+          body: wrapHtmlBody(displayToTokens(edit.body), edit.wrapP),
           isActive: edit.isActive,
         }),
-      }),
+      });
+    },
     onSuccess: () => {
       setEdit(null);
       qc.invalidateQueries({ queryKey: ['notif-templates'] });
@@ -81,14 +129,14 @@ export default function NotificationsPage() {
                 key={t.id}
                 type="button"
                 className="w-full text-left border-b border-[var(--line)] py-2.5 px-1 hover:bg-[var(--surface-2)] rounded transition"
-                onClick={() => setEdit({ ...t })}
+                onClick={() => setEdit(openEdit(t))}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-medium text-sm">{titleOf(t)}</div>
                   <Badge color={t.isActive ? 'green' : 'amber'}>{t.isActive ? 'вкл' : 'выкл'}</Badge>
                 </div>
                 <div className="text-xs text-[var(--muted)] mt-0.5 truncate">
-                  {ruLabel(NOTIFICATION_CHANNEL_LABELS, t.channel || 'EMAIL')} · {t.subject}
+                  {ruLabel(NOTIFICATION_CHANNEL_LABELS, t.channel || 'EMAIL')} · {tokensToDisplay(t.subject || '')}
                 </div>
               </button>
             ))}
@@ -116,19 +164,11 @@ export default function NotificationsPage() {
       <Modal open={!!edit} title={edit ? titleOf(edit) : ''} onClose={() => setEdit(null)}>
         {edit ? (
           <div className="space-y-3">
-            <div className="text-xs text-[var(--muted)]">
-              Код: {edit.code}. Подстановки: {'{{name}}'}, {'{{firstName}}'}, {'{{vacancy}}'}, {'{{datetime}}'}, {'{{link}}'}, {'{{company}}'}
-            </div>
-            <Input
-              placeholder="Тема"
-              value={edit.subject || ''}
-              onChange={(e) => setEdit({ ...edit, subject: e.target.value })}
-            />
-            <Textarea
-              rows={8}
-              placeholder="Текст"
-              value={edit.body || ''}
-              onChange={(e) => setEdit({ ...edit, body: e.target.value })}
+            <TemplateComposer
+              subject={edit.subject}
+              body={edit.body}
+              onSubjectChange={(subject) => setEdit({ ...edit, subject })}
+              onBodyChange={(body) => setEdit({ ...edit, body })}
             />
             <label className="text-sm flex items-center gap-2">
               <input
