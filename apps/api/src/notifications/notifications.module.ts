@@ -8,6 +8,7 @@ import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { Roles } from '../common/guards';
 import { CurrentUser } from '../common/current-user.decorator';
+import { assertCanMoveToStage } from '../funnels/transitions';
 import { createSmsAdapter, SmsPort } from './sms.adapter';
 
 @Injectable()
@@ -90,7 +91,7 @@ export class NotificationsService {
     return result;
   }
 
-  async sendBulk(opts: {
+  async sendBulk(user: { id: string; role: string }, opts: {
     candidateIds: string[];
     templateCode: string;
     stageId?: string;
@@ -98,6 +99,11 @@ export class NotificationsService {
     comment?: string;
   }) {
     const ids = Array.from(new Set(opts.candidateIds || [])).filter(Boolean).slice(0, 100);
+    const stage = opts.stageId
+      ? await this.prisma.funnelStage.findUnique({ where: { id: opts.stageId }, include: { funnel: true } })
+      : null;
+    if (opts.stageId && !stage) throw new BadRequestException('Этап не найден');
+    if (stage) assertCanMoveToStage(stage.funnel.transitions, stage, user.role);
     const results: Array<{ id: string; ok: boolean; reason?: string; email?: string }> = [];
     for (const id of ids) {
       const c = await this.prisma.candidate.findUnique({
@@ -108,7 +114,7 @@ export class NotificationsService {
           lastName: true,
           email: true,
           phone: true,
-          vacancy: { select: { title: true } },
+          vacancy: { select: { title: true, funnelId: true } },
         },
       });
       if (!c) {
@@ -129,15 +135,16 @@ export class NotificationsService {
         ...(opts.vars || {}),
       };
       const sent = await this.sendEmail(c.email, opts.templateCode, vars);
-      if (opts.stageId) {
+      if (stage && c.vacancy?.funnelId === stage.funnelId) {
         await this.prisma.candidate.update({
           where: { id },
           data: {
-            stageId: opts.stageId,
+            stageId: stage.id,
             stageChangedAt: new Date(),
             statusHistory: {
               create: {
-                stageId: opts.stageId,
+                stageId: stage.id,
+                changedById: user.id,
                 comment: opts.comment || `Массовая рассылка: ${opts.templateCode}`,
               },
             },
@@ -252,6 +259,7 @@ export class NotificationsController {
 
   @Post('bulk')
   bulk(
+    @CurrentUser() user: any,
     @Body()
     dto: {
       candidateIds: string[];
@@ -261,7 +269,7 @@ export class NotificationsController {
       comment?: string;
     },
   ) {
-    return this.service.sendBulk(dto);
+    return this.service.sendBulk(user, dto);
   }
 
   @Post('whatsapp')

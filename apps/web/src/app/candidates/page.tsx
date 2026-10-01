@@ -6,7 +6,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { AppShell, Button, Card, Empty, Icon, Input, Modal, Select } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { downloadXlsx } from '@/lib/export';
+import { canMoveToStage } from '@skillaz/shared';
 import {
   AdvancedFiltersModal,
   CandidateFilterState,
@@ -55,7 +57,7 @@ function CandidatesInner() {
   }));
   const [layout, setLayout] = useState<'list' | 'kanban'>('list');
   const [showForm, setShowForm] = useState(false);
-  const [stageModal, setStageModal] = useState<{ id: string; stages: any[] } | null>(null);
+  const [stageModal, setStageModal] = useState<{ id: string; stages: any[]; transitions?: unknown; currentStageId?: string } | null>(null);
   const [nextStageId, setNextStageId] = useState('');
   const [saveFilterOpen, setSaveFilterOpen] = useState(false);
   const [filterName, setFilterName] = useState('');
@@ -70,6 +72,7 @@ function CandidatesInner() {
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const { user } = useAuth();
 
   const query = useMemo(() => filtersToQuery(filters), [filters]);
   const activeCount = countActiveFilters(filters);
@@ -342,7 +345,12 @@ function CandidatesInner() {
               onToggleFavorite={() => toggleFav.mutate({ id: c.id, isFavorite: !c.isFavorite })}
               onChangeStatus={() => {
                 const st = c.vacancy?.funnel?.stages || stages;
-                setStageModal({ id: c.id, stages: st });
+                setStageModal({
+                  id: c.id,
+                  stages: st,
+                  transitions: c.vacancy?.funnel?.transitions || funnel?.transitions,
+                  currentStageId: c.stageId,
+                });
                 setNextStageId(c.stageId || '');
               }}
             />
@@ -359,7 +367,9 @@ function CandidatesInner() {
               className="kanban-col"
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => {
-                if (dragId) changeStage.mutate({ id: dragId, stageId: s.id });
+                if (!dragId) return;
+                if (user && !canMoveToStage(funnel?.transitions, s.code, user.role)) return;
+                changeStage.mutate({ id: dragId, stageId: s.id });
               }}
             >
               <div className="kanban-col-head">
@@ -488,9 +498,14 @@ function CandidatesInner() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Select value={nextStageId} onChange={(e) => setNextStageId(e.target.value)}>
             <option value="">Выберите этап</option>
-            {(stageModal?.stages || []).map((s: any) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+            {(stageModal?.stages || []).map((s: any) => {
+              const allowed = !user || canMoveToStage(stageModal?.transitions, s.code, user.role);
+              return (
+                <option key={s.id} value={s.id} disabled={!allowed && s.id !== stageModal?.currentStageId}>
+                  {allowed ? s.name : `🔒 ${s.name}`}
+                </option>
+              );
+            })}
           </Select>
           <Button
             disabled={!nextStageId || changeStage.isPending}
@@ -498,6 +513,7 @@ function CandidatesInner() {
           >
             Сохранить
           </Button>
+          {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
       </Modal>
 

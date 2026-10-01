@@ -33,6 +33,7 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
+import { assertCanMoveToStage } from '../funnels/transitions';
 
 @Injectable()
 export class CandidatesService {
@@ -463,6 +464,7 @@ export class CandidatesService {
     if (!candidate) throw new NotFoundException();
     const stage = candidate.vacancy?.funnel.stages.find((s) => s.id === stageId);
     if (!stage) throw new BadRequestException('Этап не принадлежит воронке вакансии');
+    assertCanMoveToStage(candidate.vacancy!.funnel.transitions, stage, user.role);
 
     await this.prisma.candidate.update({
       where: { id },

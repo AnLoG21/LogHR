@@ -1,6 +1,9 @@
-import { Body, Controller, Get, Module, Injectable, Param, Post, Patch } from '@nestjs/common';
+import {
+  BadRequestException, Body, Controller, Get, Module, Injectable, NotFoundException, Param, Post, Patch,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
+import type { FunnelTransitions } from '@skillaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { Roles } from '../common/guards';
 
@@ -55,10 +58,26 @@ export class FunnelsService {
     return this.get(funnelId);
   }
 
-  async setTransitions(funnelId: string, transitions: any) {
+  async setTransitions(funnelId: string, transitions: unknown) {
+    const funnel = await this.prisma.funnel.findUnique({ where: { id: funnelId }, include: { stages: true } });
+    if (!funnel) throw new NotFoundException();
+    const raw = (transitions as FunnelTransitions | null)?.stageRoles;
+    if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) {
+      throw new BadRequestException('stageRoles должен быть объектом { КОД_ЭТАПА: [роли] }');
+    }
+    const codes = new Set(funnel.stages.map((s) => s.code));
+    const roles = new Set<string>(Object.values(SystemRole));
+    const stageRoles: Record<string, string[]> = {};
+    for (const [code, list] of Object.entries(raw || {})) {
+      if (!codes.has(code)) throw new BadRequestException(`Нет этапа с кодом ${code}`);
+      if (!Array.isArray(list) || list.some((r) => !roles.has(r))) {
+        throw new BadRequestException(`Некорректные роли для этапа ${code}`);
+      }
+      if (list.length) stageRoles[code] = [...new Set(list)];
+    }
     return this.prisma.funnel.update({
       where: { id: funnelId },
-      data: { transitions },
+      data: { transitions: { stageRoles } },
       include: { stages: { orderBy: { order: 'asc' } } },
     });
   }
@@ -103,7 +122,7 @@ export class FunnelsController {
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
   @Patch(':id/transitions')
-  transitions(@Param('id') id: string, @Body() dto: { transitions: any }) {
+  transitions(@Param('id') id: string, @Body() dto: { transitions: unknown }) {
     return this.service.setTransitions(id, dto.transitions);
   }
 }

@@ -7,7 +7,9 @@ import Link from 'next/link';
 import { AppShell, Button, Card, Icon, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import clsx from 'clsx';
+import { useAuth } from '@/lib/auth';
 import {
+  canMoveToStage,
   CHECK_STATUS_LABELS,
   CHECK_TYPE_LABELS,
   JOB_BOARD_LABELS,
@@ -35,6 +37,7 @@ function CandidateDetailInner() {
   const { id } = useParams<{ id: string }>();
   const sp = useSearchParams();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [tab, setTab] = useState(sp.get('tab') === 'comments' || sp.get('tab') === 'history' ? 'history' : 'resume');
   const [comment, setComment] = useState('');
   const [stageId, setStageId] = useState('');
@@ -189,6 +192,14 @@ function CandidateDetailInner() {
   }
 
   const stages = c.vacancy?.funnel?.stages || [];
+  const stageOptions = stages.map((s: any) => {
+    const allowed = !user || canMoveToStage(c.vacancy?.funnel?.transitions, s.code, user.role);
+    return (
+      <option key={s.id} value={s.id} disabled={!allowed && s.id !== c.stageId}>
+        {allowed ? s.name : `🔒 ${s.name}`}
+      </option>
+    );
+  });
   const currentTagIds = (c.tags || []).map((t: any) => t.tagId || t.tag?.id).filter(Boolean);
   const allTags = Array.isArray(tagsCatalog.data)
     ? tagsCatalog.data.flatMap((cat: any) => (cat.tags ? cat.tags.map((t: any) => ({ ...t, categoryName: cat.name })) : [cat]))
@@ -439,7 +450,7 @@ function CandidateDetailInner() {
             <div style={{ marginTop: 12 }}>
               <Select value={stageId || c.stageId || ''} onChange={(e) => setStageId(e.target.value)}>
                 <option value="">Выберите этап</option>
-                {stages.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {stageOptions}
               </Select>
             </div>
           </Card>
@@ -497,7 +508,7 @@ function CandidateDetailInner() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Select value={stageId} onChange={(e) => setStageId(e.target.value)}>
             <option value="">Этап воронки</option>
-            {stages.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {stageOptions}
           </Select>
           <Select value={formType} onChange={(e) => setFormType(e.target.value)}>
             {STATUS_FORMS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
@@ -510,6 +521,7 @@ function CandidateDetailInner() {
             ),
           )}
           <Button disabled={!stageId || changeStage.isPending} onClick={() => changeStage.mutate()}>Подтвердить перевод</Button>
+          {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
       </Modal>
     </AppShell>

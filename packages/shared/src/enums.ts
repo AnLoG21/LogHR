@@ -131,6 +131,23 @@ export const ROLE_LABELS: Record<SystemRole, string> = {
   [SystemRole.SECURITY]: 'Сотрудник СБ',
 };
 
+/** Funnel.transitions JSON: roles allowed to move a candidate INTO a stage, keyed by stage code. */
+export interface FunnelTransitions {
+  stageRoles?: Record<string, string[]>;
+}
+
+/** Stages without a rule are open to everyone; ADMIN may always move. */
+export function stageAllowedRoles(transitions: unknown, stageCode: string): string[] | null {
+  const roles = (transitions as FunnelTransitions | null)?.stageRoles?.[stageCode];
+  return Array.isArray(roles) && roles.length ? roles : null;
+}
+
+export function canMoveToStage(transitions: unknown, stageCode: string, role: string): boolean {
+  if (role === SystemRole.ADMIN) return true;
+  const roles = stageAllowedRoles(transitions, stageCode);
+  return !roles || roles.includes(role);
+}
+
 export const CHECK_TYPE_LABELS: Record<string, string> = {
   SECURITY: 'Проверка СБ',
   HIRE_REQUEST: 'Запрос на найм',
