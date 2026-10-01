@@ -82,7 +82,7 @@ async function api(method, p, body, session) {
   return { ok: res.ok, status: res.status, data };
 }
 
-async function waitReady(maxMs = 120000) {
+async function waitReady(maxMs = 300000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     try {
