@@ -145,9 +145,10 @@ export function TemplateComposer({ subject, body, onSubjectChange, onBodyChange,
 
   return (
     <div className="space-y-3">
-      <div>
-        <div className="text-xs text-[var(--muted)] mb-1.5">Вставьте в текст — перетащите или нажмите:</div>
-        <div className="flex flex-wrap gap-1.5">
+      <div className="rounded-xl border border-[var(--line)] bg-[#f7faf8] p-3">
+        <div className="text-sm font-semibold text-[var(--ink)] mb-1">Подстановки</div>
+        <div className="text-xs text-[var(--muted)] mb-2">Нажмите кнопку или перетащите её в тему / текст — система сама подставит данные кандидата.</div>
+        <div className="flex flex-wrap gap-2">
           {palette.map((t) => (
             <button
               key={t.key}
@@ -155,12 +156,12 @@ export function TemplateComposer({ subject, body, onSubjectChange, onBodyChange,
               draggable
               onDragStart={(e) => onDragStart(e, t)}
               onClick={() => insert(t)}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-medium hover:border-[var(--brand-secondary)] hover:bg-white cursor-grab active:cursor-grabbing select-none"
+              className="inline-flex items-center gap-1.5 rounded-lg border-2 border-[var(--brand-primary)]/30 bg-white px-3 py-1.5 text-sm font-medium text-[var(--ink)] shadow-sm hover:border-[var(--brand-primary)] hover:bg-[#eef8f1] cursor-grab active:cursor-grabbing select-none"
               title="Нажмите или перетащите в поле"
             >
-              <span aria-hidden className="opacity-40 text-[10px]">⠿</span>
+              <span aria-hidden className="text-[var(--muted)] text-xs tracking-tighter">⋮⋮</span>
               {t.label}
-              {used.has(t.key) ? <span className="text-[var(--brand-primary)]">✓</span> : null}
+              {used.has(t.key) ? <span className="text-[var(--brand-primary)] text-xs">✓</span> : null}
             </button>
           ))}
         </div>
@@ -190,10 +191,11 @@ export function TemplateComposer({ subject, body, onSubjectChange, onBodyChange,
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => onDropField(e, bodyRef.current, body, onBodyChange)}
           placeholder="Напишите текст. Подстановки — кнопками выше."
+          className="min-h-[140px]"
         />
       </div>
 
-      <div className="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted)]">
+      <div className="rounded-lg border border-dashed border-[var(--line)] bg-white px-3 py-2 text-xs text-[var(--muted)]">
         <div className="font-medium text-[var(--ink)] mb-1">Как увидит получатель</div>
         <div className="whitespace-pre-wrap">{previewTemplate(subject)}</div>
         <div className="mt-1 whitespace-pre-wrap opacity-90">{previewTemplate(body)}</div>

@@ -102,7 +102,7 @@ export default function NotificationsPage() {
   const logItems = Array.isArray(logs.data) ? logs.data : logs.data?.items || [];
 
   return (
-    <AppShell title="Шаблоны сообщений" subtitle="Письма и тексты WhatsApp. Нажмите шаблон, чтобы изменить.">
+    <AppShell title="Шаблоны сообщений" subtitle="Нажмите шаблон слева — откроется редактор с кнопками подстановок (Имя, Ссылка…).">
       <div className="flex gap-2 mb-4">
         {([
           ['ALL', 'Все'],
