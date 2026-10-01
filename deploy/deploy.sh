@@ -25,6 +25,11 @@ main() {
   git reset -q --hard "$target"
 
   test -f deploy/.env || { echo "[deploy] missing deploy/.env (copy deploy/.env.prod.example)"; exit 1; }
+  # tls.caddy is gitignored so a corporate cert config survives git reset; seed from example once.
+  if [ ! -f deploy/tls.caddy ]; then
+    cp deploy/tls.caddy.example deploy/tls.caddy
+  fi
+  mkdir -p deploy/certs
   local c="docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env"
 
   # One at a time: small servers run out of memory building Next.js in parallel

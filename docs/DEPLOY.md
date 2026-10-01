@@ -20,7 +20,9 @@ curl -fsSL https://raw.githubusercontent.com/AnLoG21/LogHR/main/deploy/server-se
   | PUBLIC_URL=http://10.11.0.176 bash
 ```
 
-Для домена с HTTPS: `PUBLIC_URL=https://hr.example.ru SITE_ADDRESS=hr.example.ru` (A-запись домена на сервер, Caddy сам получит сертификат).
+Для домена с HTTPS: `PUBLIC_URL=https://hr.example.ru SITE_ADDRESS=hr.example.ru` (A-запись домена на сервер, Caddy сам получит сертификат Let's Encrypt, если домен публично доступен).
+
+Для корпоративного сертификата положите PEM в `deploy/certs/fullchain.pem` и `deploy/certs/privkey.pem`, скопируйте `deploy/tls.caddy.example` → `deploy/tls.caddy` и раскомментируйте строку `tls ...`. Эти файлы в `.gitignore` и переживают автодеплой. Затем `SITE_ADDRESS=hrm.infiit.ru` и `PUBLIC_URL=https://hrm.infiit.ru`.
 
 Скрипт ставит Docker и git, включает swap, клонирует репозиторий и создаёт `deploy/.env` из [`deploy/.env.prod.example`](../deploy/.env.prod.example) с уже сгенерированными паролем Postgres, JWT и `WORKER_TOKEN`. Файлы кандидатов хранятся в Docker-volume `api_uploads`; для внешнего S3 задайте `STORAGE_MODE=s3` и `S3_*`.
 

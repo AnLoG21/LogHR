@@ -1,0 +1,10 @@
+# Custom TLS (corporate CA). Paths are inside the Caddy container.
+# Copy to tls.caddy and place PEM files in deploy/certs/ (gitignored — survives auto-deploy).
+#   mkdir -p deploy/certs
+#   cp fullchain.pem privkey.pem deploy/certs/
+#   cp deploy/tls.caddy.example deploy/tls.caddy
+#   # uncomment the tls line below in tls.caddy
+# Then set SITE_ADDRESS=hrm.infiit.ru and PUBLIC_URL=https://hrm.infiit.ru in deploy/.env
+# and recreate caddy: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d caddy
+#
+# tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem

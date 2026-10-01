@@ -1,6 +1,11 @@
-# Reverse proxy in front of the Node apps: /api/* -> NestJS (api:3001), everything else -> Next.js (web:3000).
-# SITE_ADDRESS: a domain (automatic HTTPS) or ":80" for plain HTTP by IP
+# Reverse proxy: /api/* -> NestJS (api:3001), everything else -> Next.js (web:3000).
+# SITE_ADDRESS: domain (HTTPS) or ":80" for plain HTTP by IP.
+# Optional custom TLS: create tls.caddy with:
+#   tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
+# Leave tls.caddy empty (or comments only) for Let's Encrypt auto (when SITE_ADDRESS is a public domain)
+# or for plain HTTP (:80).
 {$SITE_ADDRESS::80} {
+	import tls.caddy
 	encode gzip
 	request_body /api/* {
 		max_size 50MB
