@@ -202,6 +202,9 @@ export function heuristicInsights(i: InsightInput) {
   else risks.push('Нет email — не уйдут письма и приглашения');
   if (!i.pdnConsent) risks.push('Нет согласия на обработку ПДн');
 
+  const skills = SKILLS.filter((s) => s.re.test(i.resume)).map((s) => s.name);
+  if (skills.length) hints.unshift(`Проверьте на практике заявленные навыки: ${skills.slice(0, 4).join(', ')}`);
+
   score = Math.max(5, Math.min(95, score));
   for (const h of ['Уточните релевантный опыт за последние 2–3 года', 'Уточните срок выхода и есть ли параллельные предложения']) {
     if (hints.length < 3) hints.push(h);
