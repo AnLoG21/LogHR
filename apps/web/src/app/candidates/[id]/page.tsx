@@ -172,6 +172,13 @@ function CandidateDetailInner() {
     mutationFn: () => api<any>(`/ai/candidates/${id}/insights?refresh=1`),
     onSuccess: (res) => qc.setQueryData(['candidate-ai', id], res),
   });
+  const refreshHh = useMutation({
+    mutationFn: () => api(`/job-boards/candidates/${id}/refresh-resume`, { method: 'POST', body: '{}' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['candidate', id] });
+      qc.invalidateQueries({ queryKey: ['candidate-ai', id] });
+    },
+  });
 
   if (isLoading || !c) {
     return (
@@ -274,6 +281,15 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
                 На согласование
               </Button>
+              {c.externalId && c.source === 'HH' ? (
+                <Button
+                  variant="ghost"
+                  disabled={refreshHh.isPending}
+                  onClick={() => refreshHh.mutate()}
+                >
+                  {refreshHh.isPending ? 'HH…' : 'Обновить с HH'}
+                </Button>
+              ) : null}
             </div>
             {approveLink ? (
               <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13 }}>

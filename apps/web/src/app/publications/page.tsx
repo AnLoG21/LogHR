@@ -74,6 +74,13 @@ function PublicationsInner() {
   const search = useMutation({
     mutationFn: () => api('/job-boards/search', { method: 'POST', body: JSON.stringify({ board, text: 'инженер' }) }),
   });
+  const syncHh = useMutation({
+    mutationFn: () => api('/job-boards/sync-responses', { method: 'POST', body: JSON.stringify({ board: 'HH' }) }),
+  });
+  const refreshResumes = useMutation({
+    mutationFn: () => api('/job-boards/refresh-resumes', { method: 'POST', body: JSON.stringify({ limit: 40 }) }),
+  });
+  const hhStatus = useQuery({ queryKey: ['hh-status'], queryFn: () => api<any>('/job-boards/hh-status') });
   const publish = useMutation({
     mutationFn: () =>
       api('/publications', {
@@ -214,6 +221,22 @@ function PublicationsInner() {
             <Button onClick={() => search.mutate()} disabled={search.isPending}>Запустить автопоиск</Button>
           </div>
           {search.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(search.data, null, 2)}</pre> : null}
+          <div className="border-t border-[var(--line)] pt-3 space-y-2">
+            <div className="font-semibold text-sm">HH: отклики и резюме</div>
+            <p className="text-xs text-[var(--muted)]">
+              {hhStatus.data?.note || 'Проверка токена…'} Worker также тянет отклики каждые 10 мин и обновляет резюме раз в 6 ч.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => syncHh.mutate()} disabled={syncHh.isPending || hhStatus.data?.configured === false}>
+                {syncHh.isPending ? 'Синхронизация…' : 'Синхронизировать отклики HH'}
+              </Button>
+              <Button variant="ghost" onClick={() => refreshResumes.mutate()} disabled={refreshResumes.isPending || hhStatus.data?.configured === false}>
+                {refreshResumes.isPending ? 'Обновление…' : 'Обновить резюме с HH'}
+              </Button>
+            </div>
+            {syncHh.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(syncHh.data, null, 2)}</pre> : null}
+            {refreshResumes.data ? <pre className="text-xs overflow-auto bg-[#f3f7f9] p-3 rounded-xl">{JSON.stringify(refreshResumes.data, null, 2)}</pre> : null}
+          </div>
           <p className="text-sm text-[var(--muted)]">Без ключей площадки отвечают mock. HH — боевой при HH_ACCESS_TOKEN.</p>
         </Card>
       ) : tab === 'templates' ? (

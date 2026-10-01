@@ -135,11 +135,12 @@ export class ReportsService {
   }
 
   metabaseInfo() {
-    const url = process.env.METABASE_PUBLIC_URL || process.env.METABASE_URL || '';
-    const enabled = Boolean(url);
+    // Only a browser-reachable URL — never METABASE_URL (docker-internal) or localhost fallback.
+    const raw = (process.env.METABASE_PUBLIC_URL || '').trim();
+    const url = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw) ? raw : null;
     return {
-      url: url || null,
-      enabled,
+      url,
+      enabled: Boolean(url),
       reports: [
         'Кандидаты на воронке подбора',
         'Эффективность каналов поиска',
@@ -148,9 +149,9 @@ export class ReportsService {
         'Срок закрытия заявки (план/факт)',
         'Сроки обработки кандидатов',
       ],
-      note: enabled
+      note: url
         ? 'Внешний BI (Metabase). SQL-шаблоны: docs/metabase-dashboards.sql'
-        : 'Metabase на этом стенде не запущен (профиль bi, ~1–2 ГБ RAM). Встроенные отчёты выше — основной дашборд. SQL для Metabase: docs/metabase-dashboards.sql',
+        : 'Metabase на стенде не подключён. Основная аналитика — блоки выше. Чтобы включить BI: поднимите профиль bi и задайте METABASE_PUBLIC_URL=https://… в deploy/.env (не localhost).',
     };
   }
 }

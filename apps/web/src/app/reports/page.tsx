@@ -154,13 +154,13 @@ export default function ReportsPage() {
           <div className="mt-4 pt-3 border-t border-[var(--line)]">
             <div className="font-medium text-sm mb-1">Metabase BI</div>
             <p className="text-xs text-[var(--muted)] mb-2">{metabase.data?.note}</p>
-            {metabase.data?.url ? (
+            {metabase.data?.enabled && metabase.data?.url ? (
               <a className="text-[var(--brand-secondary)] underline text-sm" href={metabase.data.url} target="_blank" rel="noreferrer">
                 Открыть Metabase
               </a>
             ) : (
               <div className="text-xs text-[var(--muted)]">
-                Чтобы включить: <code>docker compose --profile bi up -d metabase</code> на сервере с запасом RAM, затем <code>METABASE_PUBLIC_URL</code> в .env
+                Сейчас используется встроенная аналитика на этой странице. Отдельный Metabase на 2 ГБ сервере не поднимаем.
               </div>
             )}
           </div>

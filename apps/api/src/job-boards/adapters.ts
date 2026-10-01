@@ -24,11 +24,17 @@ export interface JobBoardSearchInput {
 
 export interface JobBoardResponseItem {
   externalId: string;
+  resumeId?: string;
   firstName?: string;
   lastName?: string;
+  middleName?: string;
   phone?: string;
   email?: string;
+  city?: string;
   resumeText?: string;
+  desiredPosition?: string;
+  currentPosition?: string;
+  vacancyExternalId?: string;
   raw?: unknown;
 }
 
@@ -75,7 +81,16 @@ class MockAdapter implements JobBoardPort {
 
 class HhAdapter implements JobBoardPort {
   private token = process.env.HH_ACCESS_TOKEN;
+  private ua = process.env.HH_USER_AGENT || 'LogHR/1.0 (admin@loghr.local)';
   configured() { return !!this.token; }
+
+  private headers() {
+    return {
+      Authorization: `Bearer ${this.token}`,
+      'HH-User-Agent': this.ua,
+      'Content-Type': 'application/json',
+    } as Record<string, string>;
+  }
 
   async publish(input: JobBoardPublishInput): Promise<JobBoardPublishResult> {
     if (!this.token) {
@@ -83,11 +98,7 @@ class HhAdapter implements JobBoardPort {
     }
     const res = await fetch('https://api.hh.ru/vacancies', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-        'HH-User-Agent': 'LogHR/1.0',
-      },
+      headers: this.headers(),
       body: JSON.stringify({
         name: input.title,
         description: input.description,
@@ -107,28 +118,81 @@ class HhAdapter implements JobBoardPort {
     if (input.area) params.set('area', input.area);
     params.set('page', String(input.page || 0));
     params.set('per_page', '20');
-    const res = await fetch(`https://api.hh.ru/resumes?${params}`, {
-      headers: { Authorization: `Bearer ${this.token}`, 'HH-User-Agent': 'LogHR/1.0' },
-    });
+    const res = await fetch(`https://api.hh.ru/resumes?${params}`, { headers: this.headers() });
     if (!res.ok) throw new Error(`HH search failed: ${res.status}`);
     const data: any = await res.json();
     return { items: data.items || [], total: data.found || 0 };
   }
 
+  /** Load employer negotiations (отклики). vacancyExternalId optional — if empty, caller should loop vacancies. */
   async fetchResponses(vacancyExternalId?: string): Promise<JobBoardResponseItem[]> {
-    if (!this.token || !vacancyExternalId) return [];
-    const res = await fetch(
-      `https://api.hh.ru/negotiations?vacancy_id=${vacancyExternalId}&status=response`,
-      { headers: { Authorization: `Bearer ${this.token}`, 'HH-User-Agent': 'LogHR/1.0' } },
-    );
-    if (!res.ok) return [];
-    const data: any = await res.json();
-    return (data.items || []).map((item: any) => ({
-      externalId: String(item.id),
-      firstName: item.resume?.first_name,
-      lastName: item.resume?.last_name,
-      raw: item,
-    }));
+    if (!this.token) return [];
+    if (!vacancyExternalId) return [];
+    const out: JobBoardResponseItem[] = [];
+    for (let page = 0; page < 10; page++) {
+      const params = new URLSearchParams({
+        vacancy_id: vacancyExternalId,
+        page: String(page),
+        per_page: '50',
+      });
+      const res = await fetch(`https://api.hh.ru/negotiations?${params}`, { headers: this.headers() });
+      if (!res.ok) break;
+      const data: any = await res.json();
+      const items = data.items || [];
+      for (const item of items) {
+        const resume = item.resume || {};
+        const mapped = this.mapResume(resume, String(item.id), vacancyExternalId, item);
+        out.push(mapped);
+      }
+      const pages = data.pages ?? 1;
+      if (page + 1 >= pages || !items.length) break;
+    }
+    return out;
+  }
+
+  async fetchResume(resumeId: string): Promise<JobBoardResponseItem | null> {
+    if (!this.token || !resumeId) return null;
+    const res = await fetch(`https://api.hh.ru/resumes/${resumeId}`, { headers: this.headers() });
+    if (!res.ok) return null;
+    const resume: any = await res.json();
+    return this.mapResume(resume, resumeId, undefined, resume);
+  }
+
+  private mapResume(resume: any, externalId: string, vacancyExternalId?: string, raw?: unknown): JobBoardResponseItem {
+    const phone =
+      resume.contact?.find?.((c: any) => c.type?.id === 'cell' || c.type?.id === 'home')?.value ||
+      resume.phones?.[0]?.formatted ||
+      resume.phone ||
+      undefined;
+    const email =
+      resume.contact?.find?.((c: any) => c.type?.id === 'email')?.value ||
+      resume.email ||
+      undefined;
+    const experience = Array.isArray(resume.experience) ? resume.experience : [];
+    const expText = experience
+      .slice(0, 4)
+      .map((e: any) => [e.company, e.position, e.description].filter(Boolean).join(' — '))
+      .join('\n');
+    const skills = Array.isArray(resume.skill_set) ? resume.skill_set.join(', ') : '';
+    const resumeText = [resume.title, resume.skills, skills, expText, resume.education?.level?.name]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 12000);
+    return {
+      externalId,
+      resumeId: resume.id ? String(resume.id) : undefined,
+      firstName: resume.first_name || undefined,
+      lastName: resume.last_name || undefined,
+      middleName: resume.middle_name || undefined,
+      phone: typeof phone === 'string' ? phone : phone?.formatted || phone?.number,
+      email: typeof email === 'string' ? email : undefined,
+      city: resume.area?.name || resume.metro?.city?.name,
+      desiredPosition: resume.title,
+      currentPosition: experience[0]?.position,
+      resumeText: resumeText || undefined,
+      vacancyExternalId,
+      raw,
+    };
   }
 }
 
@@ -184,6 +248,11 @@ const adapters: Partial<Record<JobBoard, JobBoardPort>> = {
 
 export function getJobBoardAdapter(board: JobBoard): JobBoardPort {
   return adapters[board] || new DisabledAdapter(board);
+}
+
+export function getHhAdapter(): HhAdapter | null {
+  const a = adapters.HH;
+  return a instanceof HhAdapter ? a : null;
 }
 
 export function boardConfigured(board: JobBoard): boolean {
