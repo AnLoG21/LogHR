@@ -326,7 +326,6 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: '/tags', label: 'Теги', icon: 'star', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITER] },
       { href: '/notifications', label: 'Шаблоны писем', icon: 'template', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },
       { href: '/pdn', label: 'ПДн', icon: 'shield', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },
-      { href: '/admin?tab=brand', label: 'Брендирование', icon: 'settings', roles: [SystemRole.ADMIN] },
       { href: '/reports', label: 'Отчёты', icon: 'chart', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD] },
       { href: '/dashboard', label: 'Рабочий стол', icon: 'home', roles: Object.values(SystemRole) },
     ],

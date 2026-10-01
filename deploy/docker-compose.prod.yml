@@ -152,6 +152,8 @@ services:
       MB_DB_USER: ${POSTGRES_USER:-loghr}
       MB_DB_PASS: ${POSTGRES_PASSWORD}
       MB_SITE_URL: ${METABASE_PUBLIC_URL:-}
+      MB_SITE_NAME: ${BRAND_NAME:-ТАЙМЫР ИНВЕСТ}
+      MB_SITE_LOCALE: ru
       MB_ANON_TRACKING_ENABLED: "false"
       JAVA_OPTS: -Xmx768m
     depends_on:

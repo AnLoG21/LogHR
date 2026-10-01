@@ -3,8 +3,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import { api } from '@/lib/api';
 import { Icon } from '@/components/ui';
+
+const COMPANY_NAME = 'ТАЙМЫР ИНВЕСТ';
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -14,25 +15,10 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [brandName, setBrandName] = useState('LogHR');
 
   useEffect(() => {
     if (!loading && user) router.replace('/candidates');
   }, [loading, user, router]);
-
-  useEffect(() => {
-    api<any>('/branding')
-      .then((b) => {
-        if (b?.companyName) setBrandName(b.companyName);
-        if (typeof document !== 'undefined' && b?.primaryColor) {
-          document.documentElement.style.setProperty('--brand-primary', b.primaryColor);
-        }
-        if (typeof document !== 'undefined' && b?.secondaryColor) {
-          document.documentElement.style.setProperty('--brand-secondary', b.secondaryColor);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -60,9 +46,13 @@ export default function LoginPage() {
     <div className="login-page">
       <section className="login-form-pane">
         <form onSubmit={onSubmit} className="login-form-wrap">
-          <div style={{ marginBottom: 40 }}>
-            <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{brandName}</div>
-            <div style={{ fontSize: 15, color: '#8a9199', marginTop: 8 }}>ATS для подбора персонала</div>
+          <div style={{ marginBottom: 40, display: 'flex', alignItems: 'center', gap: 14 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" width={48} height={48} style={{ display: 'block' }} />
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{COMPANY_NAME}</div>
+              <div style={{ fontSize: 14, color: '#8a9199', marginTop: 6 }}>ATS для подбора персонала</div>
+            </div>
           </div>
 
           <label className="login-field">
@@ -117,17 +107,9 @@ export default function LoginPage() {
 
       <section className="login-geo" aria-hidden>
         <div className="login-geo-brand">
-          <svg width="56" height="56" viewBox="0 0 40 40">
-            <defs>
-              <linearGradient id="lhlogin" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#2dd4bf" />
-                <stop offset="100%" stopColor="#5eead4" />
-              </linearGradient>
-            </defs>
-            <rect x="4" y="4" width="32" height="32" rx="8" fill="url(#lhlogin)" />
-            <path d="M13 14h3.8v8.5H27V26H13V14z" fill="#0f2744" />
-          </svg>
-          <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: '-0.02em' }}>{brandName}</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={72} height={72} style={{ display: 'block', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.25))' }} />
+          <span style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{COMPANY_NAME}</span>
         </div>
       </section>
     </div>

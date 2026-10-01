@@ -41,7 +41,7 @@ export default function PublicCheckPage() {
   });
 
   const c = data?.candidate;
-  const brand = 'LogHR';
+  const brand = 'ТАЙМЫР ИНВЕСТ';
 
   return (
     <div className="min-h-screen" style={{ background: '#f5f7f9' }}>

@@ -3,11 +3,14 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'LogHR — ATS',
-  description: 'Система подбора персонала LogHR',
+  title: 'ТАЙМЫР ИНВЕСТ — ATS',
+  description: 'Система подбора персонала ТАЙМЫР ИНВЕСТ',
   icons: {
-    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
-    apple: [{ url: '/favicon.svg' }],
+    icon: [
+      { url: '/favicon.png', type: 'image/png' },
+      { url: '/logo.png', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-icon.png', type: 'image/png' }],
   },
 };
 

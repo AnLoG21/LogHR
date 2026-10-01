@@ -78,7 +78,7 @@ const WHATSAPP_TEMPLATES = [
 ].map((t) => ({ ...t, channel: 'WHATSAPP' }));
 
 async function main() {
-  const brand = process.env.BRAND_NAME || 'LogHR';
+  const brand = process.env.BRAND_NAME || 'ТАЙМЫР ИНВЕСТ';
 
   for (const vp of VISIBILITY_PROFILES) {
     await prisma.visibilityProfile.upsert({ where: { code: vp.code }, update: {}, create: vp });
@@ -138,7 +138,11 @@ async function main() {
   });
   if (!(await prisma.branding.findFirst())) {
     await prisma.branding.create({
-      data: { companyName: brand, primaryColor: process.env.BRAND_PRIMARY_COLOR || '#0f2744', secondaryColor: '#0d9488' },
+      data: { companyName: brand, primaryColor: process.env.BRAND_PRIMARY_COLOR || '#0a4ea3', secondaryColor: '#1ea64a' },
+    });
+  } else {
+    await prisma.branding.updateMany({
+      data: { companyName: brand, primaryColor: process.env.BRAND_PRIMARY_COLOR || '#0a4ea3', secondaryColor: '#1ea64a' },
     });
   }
 

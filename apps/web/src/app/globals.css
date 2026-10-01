@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  /* LogHR tokens — Skillaz-like layout, own palette */
+  /* Таймыр Инвест — зелёный / синий / чёрный */
   --sk-bg: #f2f4f8;
   --sk-sidebar: #eef1f6;
   --sk-panel: #ffffff;
@@ -12,13 +12,13 @@
   --sk-label: #4a5568;
   --sk-line: #e2e6ee;
   --sk-line-strong: #c8ceda;
-  --sk-green: #0d9488;
-  --sk-green-hover: #0f766e;
-  --sk-teal: #0d9488;
-  --sk-blue: #2563eb;
-  --sk-link: #2563eb;
+  --sk-green: #1ea64a;
+  --sk-green-hover: #178a3c;
+  --sk-teal: #1ea64a;
+  --sk-blue: #0a4ea3;
+  --sk-link: #0a4ea3;
   --sk-purple: #6366f1;
-  --sk-header: #0f2744;
+  --sk-header: #111111;
   --sk-danger: #dc2626;
   --sk-shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
   --sk-shadow-card: 0 2px 8px rgba(16, 24, 40, 0.06);
@@ -27,9 +27,9 @@
   --sk-sidebar-w: 248px;
   --sk-top-h: 52px;
 
-  --brand-primary: #0f2744;
-  --brand-secondary: var(--sk-green);
-  --brand-accent: #14b8a6;
+  --brand-primary: #0a4ea3;
+  --brand-secondary: #1ea64a;
+  --brand-accent: #1ea64a;
   --surface: var(--sk-bg);
   --surface-2: #eef1f4;
   --panel: var(--sk-panel);
@@ -269,9 +269,9 @@
     overflow: hidden;
     min-height: 100vh;
     background:
-      radial-gradient(ellipse 80% 60% at 20% 90%, rgba(20, 184, 166, 0.35), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 90% 10%, rgba(61, 139, 156, 0.4), transparent 50%),
-      linear-gradient(145deg, #071825 0%, #0f2744 38%, #163a52 68%, #0d9488 100%);
+      radial-gradient(ellipse 70% 55% at 15% 85%, rgba(30, 166, 74, 0.45), transparent 55%),
+      radial-gradient(ellipse 65% 50% at 90% 15%, rgba(10, 78, 163, 0.5), transparent 50%),
+      linear-gradient(145deg, #0a1a2e 0%, #0a4ea3 42%, #0d6b4f 72%, #1ea64a 100%);
   }
   @media (min-width: 1024px) {
     .login-geo {

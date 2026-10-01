@@ -385,11 +385,11 @@ async function main() {
   if (existingBrand) {
     await prisma.branding.update({
       where: { id: existingBrand.id },
-      data: { companyName: 'LogHR', primaryColor: '#0f2744', secondaryColor: '#0d9488' },
+      data: { companyName: 'ТАЙМЫР ИНВЕСТ', primaryColor: '#0a4ea3', secondaryColor: '#1ea64a' },
     });
   } else {
     await prisma.branding.create({
-      data: { companyName: 'LogHR', primaryColor: '#0f2744', secondaryColor: '#0d9488' },
+      data: { companyName: 'ТАЙМЫР ИНВЕСТ', primaryColor: '#0a4ea3', secondaryColor: '#1ea64a' },
     });
   }
 

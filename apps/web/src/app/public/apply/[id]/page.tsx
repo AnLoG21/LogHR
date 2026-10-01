@@ -38,8 +38,8 @@ export default function PublicApplyPage() {
     mutationFn: () => publicApi(`/vacancies/public/${id}/apply`, { method: 'POST', body: JSON.stringify(form) }),
   });
 
-  const brand = data?.branding?.companyName || 'LogHR';
-  const color = data?.branding?.primaryColor || '#0f2744';
+  const brand = 'ТАЙМЫР ИНВЕСТ';
+  const color = data?.branding?.primaryColor || '#0a4ea3';
 
   return (
     <div className="min-h-screen" style={{ background: '#f5f7f9' }}>

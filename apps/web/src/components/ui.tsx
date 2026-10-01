@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NAV_GROUPS, ROLE_LABELS, SystemRole } from '@skillaz/shared';
 import { useAuth } from '@/lib/auth';
-import { api } from '@/lib/api';
 import clsx from 'clsx';
 
 function Icon({ name, className }: { name: string; className?: string }) {
@@ -85,19 +84,19 @@ export { Icon };
 
 function BrandMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <defs>
-        <linearGradient id="lhg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#14b8a6" />
-          <stop offset="55%" stopColor="#0d9488" />
-          <stop offset="100%" stopColor="#0f2744" />
-        </linearGradient>
-      </defs>
-      <rect x="4" y="4" width="32" height="32" rx="8" fill="url(#lhg)" />
-      <path d="M13 14h3.8v8.5H27V26H13V14z" fill="#fff" />
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/logo.png"
+      alt=""
+      width={size}
+      height={size}
+      style={{ display: 'block', objectFit: 'contain' }}
+      aria-hidden
+    />
   );
 }
+
+const COMPANY_NAME = 'ТАЙМЫР ИНВЕСТ';
 
 export function AppShell({
   children,
@@ -115,7 +114,6 @@ export function AppShell({
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const [brand, setBrand] = useState<{ companyName: string; primaryColor?: string; secondaryColor?: string } | null>(null);
   const [openNav, setOpenNav] = useState(false);
   const [menuQ, setMenuQ] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ main: true, tools: true, boards: true, settings: true });
@@ -124,21 +122,6 @@ export function AppShell({
     if (!loading && !user) router.replace('/login');
   }, [loading, user, router]);
 
-  useEffect(() => {
-    api<any>('/branding')
-      .then((b) => {
-        setBrand(b);
-        if (typeof document !== 'undefined') {
-          const root = document.documentElement;
-          if (b?.primaryColor) root.style.setProperty('--brand-primary', b.primaryColor);
-          if (b?.secondaryColor) {
-            root.style.setProperty('--brand-secondary', b.secondaryColor);
-            root.style.setProperty('--sk-green', b.secondaryColor);
-          }
-        }
-      })
-      .catch(() => undefined);
-  }, []);
 
   const groups = useMemo(() => {
     if (!user) return [];
@@ -184,7 +167,7 @@ export function AppShell({
           <div className="app-company" style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 12, borderLeft: '1px solid var(--sk-line)' }}>
             <BrandMark size={22} />
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {brand?.companyName || 'LogHR'}
+              {COMPANY_NAME}
             </span>
           </div>
           <button

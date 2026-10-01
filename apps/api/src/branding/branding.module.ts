@@ -13,8 +13,9 @@ export class BrandingService {
     if (!branding) {
       branding = await this.prisma.branding.create({
         data: {
-          companyName: process.env.BRAND_NAME || 'LogHR',
-          primaryColor: process.env.BRAND_PRIMARY_COLOR || '#1B4F72',
+          companyName: process.env.BRAND_NAME || 'ТАЙМЫР ИНВЕСТ',
+          primaryColor: process.env.BRAND_PRIMARY_COLOR || '#0a4ea3',
+          secondaryColor: '#1ea64a',
         },
       });
     }
