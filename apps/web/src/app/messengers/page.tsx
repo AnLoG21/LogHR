@@ -13,7 +13,7 @@ export default function MessengersPage() {
   return (
     <AppShell title="Мессенджеры" subtitle="Быстрые ссылки WhatsApp / Telegram из карточек кандидатов">
       <Card className="p-4 mb-4 text-sm text-[var(--muted)]">
-        История чатов не хранится — открывается web-версия мессенджера с личным аккаунтом (как в тарифе Base Extended).
+        История чатов не хранится — открывается личный аккаунт WhatsApp или Telegram в браузере.
       </Card>
       <div className="space-y-2">
         {(candidates.data?.items || []).filter((c: any) => c.phone).map((c: any) => {

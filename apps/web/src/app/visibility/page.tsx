@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Button, Card, Empty, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
+import { autoCode } from '@/lib/slug';
 
 const SCOPES = [
   { value: 'all', label: 'Всё в системе', hint: 'Как у администратора — без ограничений' },
@@ -20,7 +21,7 @@ export default function VisibilityPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<any | null>(null);
-  const [form, setForm] = useState({ name: '', code: '', scope: 'orgUnit', description: '' });
+  const [form, setForm] = useState({ name: '', scope: 'orgUnit', description: '' });
   const list = useQuery({ queryKey: ['visibility'], queryFn: () => api<any[]>('/visibility') });
 
   const create = useMutation({
@@ -29,13 +30,13 @@ export default function VisibilityPage() {
         method: 'POST',
         body: JSON.stringify({
           name: form.name,
-          code: form.code.toUpperCase().replace(/\s+/g, '_'),
+          code: autoCode(form.name, 'VIS'),
           rules: { scope: form.scope, description: form.description },
         }),
       }),
     onSuccess: () => {
       setOpen(false);
-      setForm({ name: '', code: '', scope: 'orgUnit', description: '' });
+      setForm({ name: '', scope: 'orgUnit', description: '' });
       qc.invalidateQueries({ queryKey: ['visibility'] });
     },
   });
@@ -98,7 +99,6 @@ export default function VisibilityPage() {
       <Modal open={open} title="Новый профиль видимости" onClose={() => setOpen(false)}>
         <div className="space-y-3">
           <Input placeholder="Название" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Input placeholder="Код (латиницей)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
           <label className="block text-sm">
             Область доступа
             <Select className="mt-1" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })}>
@@ -107,7 +107,7 @@ export default function VisibilityPage() {
             <div className="text-xs text-[var(--muted)] mt-1">{SCOPES.find((s) => s.value === form.scope)?.hint}</div>
           </label>
           <Textarea placeholder="Комментарий (необязательно)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <Button disabled={!form.name || !form.code || create.isPending} onClick={() => create.mutate()}>Создать</Button>
+          <Button disabled={!form.name || create.isPending} onClick={() => create.mutate()}>Создать</Button>
         </div>
       </Modal>
 

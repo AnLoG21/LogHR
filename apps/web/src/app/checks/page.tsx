@@ -39,7 +39,7 @@ export default function ChecksPage() {
                   <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'APPROVED' })}>Одобрить</Button>
                   <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'REJECTED' })}>Отклонить</Button>
                   {c.externalToken ? (
-                    <a className="text-xs text-[var(--brand-secondary)] underline" href={`/public/check/${c.externalToken}`} target="_blank" rel="noreferrer">Public</a>
+                    <a className="text-xs text-[var(--brand-secondary)] underline" href={`/public/check/${c.externalToken}`} target="_blank" rel="noreferrer">Ссылка для проверки</a>
                   ) : null}
                 </td>
               </tr>

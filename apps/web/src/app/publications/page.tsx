@@ -28,6 +28,7 @@ function PublicationsInner() {
   const [vacancyId, setVacancyId] = useState('');
   const [board, setBoard] = useState('HH');
   const [templateId, setTemplateId] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [tplOpen, setTplOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const emptyTpl = { name: '', board: 'HH', title: '', description: '', city: '', pay: true, extra: {} as Record<string, unknown> };
@@ -77,7 +78,7 @@ function PublicationsInner() {
   });
 
   const search = useMutation({
-    mutationFn: () => api('/job-boards/search', { method: 'POST', body: JSON.stringify({ board, text: 'инженер' }) }),
+    mutationFn: () => api('/job-boards/search', { method: 'POST', body: JSON.stringify({ board, text: searchText.trim() || ' ' }) }),
   });
   const syncHh = useMutation({
     mutationFn: () => api('/job-boards/sync-responses', { method: 'POST', body: JSON.stringify({ board: 'HH' }) }),
@@ -197,8 +198,8 @@ function PublicationsInner() {
                 <div>
                   <div className="font-semibold">{r.vacancy?.title} · {ruLabel(JOB_BOARD_LABELS, r.board)}</div>
                   <div className="text-xs text-[var(--muted)] mt-1">
-                    каждые {r.intervalHours} ч · регион: {r.regionHint || '—'} · next: {r.nextRunAt ? new Date(r.nextRunAt).toLocaleString('ru-RU') : '—'}
-                    {r.lastError ? ` · err: ${r.lastError}` : ''}
+                    каждые {r.intervalHours} ч · регион: {r.regionHint || '—'} · следующий запуск: {r.nextRunAt ? new Date(r.nextRunAt).toLocaleString('ru-RU') : '—'}
+                    {r.lastError ? ` · ошибка: ${String(r.lastError).replace(/MOCKED:.*?ключ[^\s,]*/gi, 'демо-режим').replace(/\.env/gi, 'настройках')}` : ''}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -222,7 +223,11 @@ function PublicationsInner() {
                 {BOARDS.map((b) => <option key={b} value={b}>{ruLabel(JOB_BOARD_LABELS, b)}</option>)}
               </Select>
             </div>
-            <Button onClick={() => search.mutate()} disabled={search.isPending}>Запустить автопоиск</Button>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Поисковый запрос</div>
+              <Input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Например: водитель" />
+            </div>
+            <Button onClick={() => search.mutate()} disabled={search.isPending || !searchText.trim()}>Запустить автопоиск</Button>
           </div>
           {search.data ? (
             <div className="text-sm text-[var(--muted)]">

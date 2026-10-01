@@ -130,7 +130,7 @@ export default function OrgUnitsPage() {
           }}
         >
           <Input name="name" placeholder="Название" required />
-          <Input name="code" placeholder="Код / внешний ID" />
+          <Input name="code" placeholder="Код в 1С / учётной системе (необязательно)" />
           <Input name="city" placeholder="Город" value={cityDraft} onChange={(e) => setCityDraft(e.target.value)} />
           <AddressSuggest
             value={addr}
@@ -142,7 +142,7 @@ export default function OrgUnitsPage() {
             placeholder="Адрес (DaData)"
           />
           <Button type="submit" disabled={create.isPending}>Создать</Button>
-          {create.isError ? <div className="text-sm text-[var(--sk-danger)]">Ошибка создания (нужна роль ADMIN/HR BP)</div> : null}
+          {create.isError ? <div className="text-sm text-[var(--sk-danger)]">Недостаточно прав. Обратитесь к администратору.</div> : null}
         </form>
       </Modal>
     </AppShell>

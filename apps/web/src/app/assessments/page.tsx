@@ -125,7 +125,7 @@ function AssessmentsInner() {
               </div>
               {a.externalToken ? (
                 <a className="sk-link text-xs" href={`/public/assessment/${a.externalToken}`} target="_blank" rel="noreferrer">
-                  Public-ссылка
+                  Ссылка для кандидата
                 </a>
               ) : null}
             </Card>

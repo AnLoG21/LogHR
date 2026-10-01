@@ -218,7 +218,7 @@ export class JobBoardsService {
     const hh = getHhAdapter();
     if (!hh?.configured()) return { ok: false, note: 'HeadHunter не подключён' };
     const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c?.externalId) return { ok: false, note: 'У кандидата нет externalId (HH resume id)' };
+    if (!c?.externalId) return { ok: false, note: 'У кандидата нет связи с резюме на HeadHunter' };
     const fresh = await hh.fetchResume(c.externalId);
     if (!fresh) return { ok: false, note: 'HH не вернул резюме' };
     const updated = await this.prisma.candidate.update({

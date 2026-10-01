@@ -70,7 +70,7 @@ function AdminInner() {
 
       {tab === 'import' ? (
         <Card className="p-4 space-y-3 max-w-2xl">
-          <div className="font-bold text-[var(--brand-primary)]">XLSX мастер</div>
+          <div className="font-bold text-[var(--brand-primary)]">Импорт и экспорт Excel</div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={() => downloadXlsx('candidates')}>Экспорт кандидатов</Button>
             <Button variant="ghost" onClick={() => downloadXlsx('org-units')}>Экспорт орг. единиц</Button>
@@ -152,7 +152,7 @@ function AdminInner() {
               ))}
             </div>
             <a className="text-sm text-[var(--brand-secondary)] underline block mt-3" href={`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/docs`} target="_blank" rel="noreferrer">
-              OpenAPI / Swagger для 1С
+              Документация API для 1С
             </a>
           </Card>
 

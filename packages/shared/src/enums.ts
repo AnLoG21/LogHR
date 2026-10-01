@@ -219,12 +219,14 @@ export const PDN_DOC_TYPE_LABELS: Record<string, string> = {
 export const NOTIFICATION_CHANNEL_LABELS: Record<string, string> = {
   EMAIL: 'Email',
   SMS: 'SMS',
+  WHATSAPP: 'WhatsApp',
   email: 'Email',
+  whatsapp: 'WhatsApp',
 };
 
 export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
   SENT: 'Отправлено',
-  MOCKED: 'Тестовый режим (SMTP не настроен)',
+  MOCKED: 'Сохранено без отправки (почта не подключена)',
   FAILED: 'Ошибка',
   SKIPPED: 'Пропущено',
   PENDING: 'В очереди',
@@ -321,7 +323,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: '/admin', label: 'Пользователи и роли', icon: 'settings', roles: [SystemRole.ADMIN] },
       { href: '/funnels', label: 'Воронки', icon: 'flow', roles: [SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD] },
       { href: '/visibility', label: 'Профили видимости', icon: 'eye', roles: [SystemRole.ADMIN] },
-      { href: '/custom-fields', label: 'Кастомные поля', icon: 'list', roles: [SystemRole.ADMIN] },
+      { href: '/custom-fields', label: 'Дополнительные поля', icon: 'list', roles: [SystemRole.ADMIN] },
       { href: '/dictionaries', label: 'Справочники', icon: 'list', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },
       { href: '/tags', label: 'Теги', icon: 'star', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITER] },
       { href: '/notifications', label: 'Шаблоны писем', icon: 'template', roles: [SystemRole.ADMIN, SystemRole.HR_BP] },

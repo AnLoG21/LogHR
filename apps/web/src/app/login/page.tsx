@@ -51,7 +51,7 @@ export default function LoginPage() {
             <img src="/logo.png" alt="" width={48} height={48} style={{ display: 'block' }} />
             <div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{COMPANY_NAME}</div>
-              <div style={{ fontSize: 14, color: '#8a9199', marginTop: 6 }}>ATS для подбора персонала</div>
+              <div style={{ fontSize: 14, color: '#8a9199', marginTop: 6 }}>Система подбора персонала</div>
             </div>
           </div>
 
@@ -95,10 +95,6 @@ export default function LoginPage() {
 
           <button type="submit" className="login-submit" disabled={busy}>
             {busy ? 'Вход…' : 'Войти'}
-          </button>
-
-          <button type="button" className="login-forgot">
-            Забыли пароль?
           </button>
         </form>
 

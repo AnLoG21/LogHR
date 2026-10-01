@@ -208,7 +208,7 @@ export class PublicationsService {
           externalId: result.externalId,
           url: result.url,
           publishedAt: mocked ? undefined : new Date(),
-          error: mocked ? 'MOCKED: нет API-ключа, публикация не отправлена на доску' : undefined,
+          error: mocked ? 'Демо-режим: объявление не отправлено на площадку' : undefined,
           payload: {
             title,
             description,

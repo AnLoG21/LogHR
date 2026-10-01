@@ -515,13 +515,20 @@ function CandidateDetailInner() {
           <Select value={formType} onChange={(e) => setFormType(e.target.value)}>
             {STATUS_FORMS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </Select>
-          {(STATUS_FORMS.find((f) => f.id === formType)?.fields || []).map((field) =>
-            field === 'comment' ? (
-              <Textarea key={field} placeholder="Комментарий" value={formData[field] || ''} onChange={(e) => setFormData({ ...formData, [field]: e.target.value })} />
+          {(STATUS_FORMS.find((f) => f.id === formType)?.fields || []).map((field) => {
+            const placeholders: Record<string, string> = {
+              result: 'Результат',
+              reason: 'Причина',
+              datetime: 'Дата и время',
+              salary: 'Оклад',
+              comment: 'Комментарий',
+            };
+            return field === 'comment' ? (
+              <Textarea key={field} placeholder={placeholders[field] || field} value={formData[field] || ''} onChange={(e) => setFormData({ ...formData, [field]: e.target.value })} />
             ) : (
-              <Input key={field} placeholder={field} value={formData[field] || ''} onChange={(e) => setFormData({ ...formData, [field]: e.target.value })} />
-            ),
-          )}
+              <Input key={field} placeholder={placeholders[field] || field} value={formData[field] || ''} onChange={(e) => setFormData({ ...formData, [field]: e.target.value })} />
+            );
+          })}
           <Button disabled={!stageId || changeStage.isPending} onClick={() => changeStage.mutate()}>Подтвердить перевод</Button>
           {changeStage.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(changeStage.error as Error).message}</div> : null}
         </div>
@@ -774,8 +781,8 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
             <div style={{ fontSize: 12, marginTop: 4 }}>Статус: чат HeadHunter пока не подключён</div>
           ) : (
             <>
-              {chat.data.negotiationId ? (
-                <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginTop: 4 }}>negotiation: {chat.data.negotiationId}</div>
+              {chat.data.configured && chat.data.live ? (
+                <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginTop: 4 }}>Переписка с HeadHunter подключена</div>
               ) : null}
               <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', display: 'grid', gap: 6 }}>
                 {(chat.data.messages || []).map((m: any) => (

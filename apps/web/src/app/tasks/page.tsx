@@ -19,7 +19,7 @@ export default function TasksPage() {
   const open = items.filter((t: any) => t.status === 'OPEN');
 
   return (
-    <AppShell title="Мои задачи" subtitle="Таск-трекер воронки и заявок">
+    <AppShell title="Мои задачи" subtitle="Задачи по кандидатам и заявкам">
       <div className="text-[13px] text-[var(--sk-muted)] mb-3">Открытых: {open.length} · всего {items.length}</div>
       <Card className="divide-y divide-[var(--line)]">
         {items.map((t: any, i: number) => (

@@ -58,8 +58,8 @@ export default function VacancyDetailPage() {
       subtitle={v.description || ''}
       actions={
         <>
-          <Button variant="ghost" onClick={() => publish.mutate('HH')}>HH</Button>
-          <Button variant="ghost" onClick={() => publish.mutate('AVITO')}>Avito</Button>
+          <Button variant="ghost" onClick={() => publish.mutate('HH')}>Опубликовать на HeadHunter</Button>
+          <Button variant="ghost" onClick={() => publish.mutate('AVITO')}>Опубликовать на Avito</Button>
         </>
       }
     >

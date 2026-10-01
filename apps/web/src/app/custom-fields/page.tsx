@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select } from '@/components/ui';
 import { api } from '@/lib/api';
+import { autoCode } from '@/lib/slug';
 import { CUSTOM_FIELD_ENTITY_LABELS, CUSTOM_FIELD_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
 const ENTITIES = Object.entries(CUSTOM_FIELD_ENTITY_LABELS).map(([value, label]) => ({ value, label }));
@@ -11,7 +12,6 @@ const ENTITIES = Object.entries(CUSTOM_FIELD_ENTITY_LABELS).map(([value, label])
 type FieldForm = {
   id?: string;
   entityType: string;
-  code: string;
   label: string;
   fieldType: string;
   optionsText: string;
@@ -20,7 +20,6 @@ type FieldForm = {
 
 const emptyForm = (): FieldForm => ({
   entityType: 'VACANCY',
-  code: '',
   label: '',
   fieldType: 'string',
   optionsText: '',
@@ -38,7 +37,7 @@ export default function CustomFieldsPage() {
         method: 'POST',
         body: JSON.stringify({
           entityType: form.entityType,
-          code: form.code.trim(),
+          code: autoCode(form.label, 'FIELD'),
           label: form.label.trim(),
           fieldType: form.fieldType,
           options: form.fieldType === 'select'
@@ -89,7 +88,6 @@ export default function CustomFieldsPage() {
     setForm({
       id: f.id,
       entityType: f.entityType,
-      code: f.code,
       label: f.label,
       fieldType: f.fieldType,
       optionsText: opts.join(', '),
@@ -133,16 +131,9 @@ export default function CustomFieldsPage() {
               {ENTITIES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
             </Select>
           ) : (
-            <div className="text-xs text-[var(--muted)]">{ruLabel(CUSTOM_FIELD_ENTITY_LABELS, form.entityType)} · {form.code}</div>
+            <div className="text-xs text-[var(--muted)]">{ruLabel(CUSTOM_FIELD_ENTITY_LABELS, form.entityType)}</div>
           )}
-          {!form.id ? (
-            <Input
-              placeholder="Код (латиницей, без пробелов)"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-            />
-          ) : null}
-          <Input placeholder="Название для людей" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+          <Input placeholder="Название поля" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
           <Select value={form.fieldType} onChange={(e) => setForm({ ...form, fieldType: e.target.value })}>
             {Object.entries(CUSTOM_FIELD_TYPE_LABELS).map(([t, l]) => <option key={t} value={t}>{l}</option>)}
           </Select>
@@ -154,7 +145,7 @@ export default function CustomFieldsPage() {
             />
           ) : null}
           <Button
-            disabled={!form.label || (!form.id && !form.code) || create.isPending || save.isPending}
+            disabled={!form.label || create.isPending || save.isPending}
             onClick={() => (form.id ? save.mutate() : create.mutate())}
           >
             {form.id ? 'Сохранить' : 'Создать'}

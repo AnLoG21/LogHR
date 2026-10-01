@@ -55,19 +55,19 @@ export class IntegrationsService {
 
   async ensureDefaults() {
     const defaults = [
-      { code: 'HH', name: 'HeadHunter API' },
+      { code: 'HH', name: 'HeadHunter' },
       { code: 'SUPERJOB', name: 'SuperJob' },
       { code: 'AVITO', name: 'Avito Работа' },
       { code: 'ZARPLATA', name: 'Zarplata.ru' },
-      { code: 'SMTP', name: 'Email SMTP' },
+      { code: 'SMTP', name: 'Почта' },
       { code: 'SMS', name: 'SMS' },
       { code: 'TELEPHONY', name: 'Телефония' },
       { code: 'PROACTION', name: 'ProAction' },
-      { code: 'REDIS', name: 'Redis / очереди' },
-      { code: 'S3', name: 'MinIO / S3' },
-      { code: 'AI', name: 'AI (parse/score/hints)' },
-      { code: 'HH_CHAT', name: 'HH Chat sync' },
-      { code: 'DADATA', name: 'DaData адреса' },
+      { code: 'REDIS', name: 'Очередь задач' },
+      { code: 'S3', name: 'Файловое хранилище' },
+      { code: 'AI', name: 'ИИ-помощник' },
+      { code: 'HH_CHAT', name: 'Чат HeadHunter' },
+      { code: 'DADATA', name: 'Подсказки адресов' },
     ];
     for (const d of defaults) {
       await this.prisma.integrationStatus.upsert({
@@ -151,7 +151,7 @@ export class IntegrationsService {
         candidateId,
         negotiationId: null,
         messages: [],
-        note: 'Нет HH negotiation id (externalId кандидата или отклика). Импортируйте отклик с HH или укажите externalId.',
+        note: 'Нет связи с перепиской HeadHunter. Синхронизируйте отклик или откройте чат на сайте HH.',
       };
     }
 
@@ -164,14 +164,16 @@ export class IntegrationsService {
         },
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        await res.text().catch(() => '');
         return {
           configured: true,
           live: false,
           candidateId,
           negotiationId,
           messages: [],
-          note: `HH API ${res.status}: ${text.slice(0, 200) || res.statusText}`,
+          note: res.status === 401 || res.status === 403
+            ? 'Нет доступа к переписке HeadHunter. Проверьте подключение аккаунта.'
+            : 'Не удалось загрузить переписку HeadHunter. Попробуйте позже.',
           error: `hh_${res.status}`,
         };
       }
@@ -221,7 +223,7 @@ export class IntegrationsService {
       candidate?.responses.find((r) => r.externalId)?.externalId ||
       null;
     if (!negotiationId) {
-      return { ok: false, note: 'Нет negotiation id у кандидата' };
+      return { ok: false, note: 'Нет связи с перепиской HeadHunter у этого кандидата' };
     }
 
     const body = new URLSearchParams({ message: text.trim() });

@@ -80,7 +80,6 @@ export default function FunnelsPage() {
                       </span>
                     ) : null}
                   </span>
-                  <span className="text-xs text-[var(--muted)]">{s.code}</span>
                   <Button
                     variant="ghost"
                     disabled={i === 0 || move.isPending}

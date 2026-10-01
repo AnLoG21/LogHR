@@ -50,7 +50,7 @@ export default function OffersPage() {
                     <Button onClick={() => change.mutate({ id: o.id, status: 'SENT_TO_CANDIDATE' })}>Отправить</Button>
                   )}
                   {o.externalToken ? (
-                    <a className="text-xs text-[var(--brand-secondary)] underline ml-2" href={`/public/offer/${o.externalToken}`} target="_blank" rel="noreferrer">Public</a>
+                    <a className="text-xs text-[var(--brand-secondary)] underline ml-2" href={`/public/offer/${o.externalToken}`} target="_blank" rel="noreferrer">Ссылка для кандидата</a>
                   ) : null}
                 </td>
               </tr>

@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Button, Card, Empty, Input, Modal, Select } from '@/components/ui';
+import { AppShell, Button, Card, Empty, Input, Modal } from '@/components/ui';
 import { api } from '@/lib/api';
+import { autoCode } from '@/lib/slug';
 
 export default function DictionariesPage() {
   const qc = useQueryClient();
@@ -16,7 +17,7 @@ export default function DictionariesPage() {
   });
 
   return (
-    <AppShell title="Справочники" subtitle="Стандартные и дополнительные справочники">
+    <AppShell title="Справочники" subtitle="Значения для списков в формах и фильтрах">
       <div className="space-y-4">
         {(list.data || []).map((d: any) => (
           <Card key={d.id} className="p-4">
@@ -32,16 +33,19 @@ export default function DictionariesPage() {
             </div>
           </Card>
         ))}
-        {!list.isLoading && !(list.data || []).length ? <Empty text="Справочников нет — запустите seed" /> : null}
+        {!list.isLoading && !(list.data || []).length ? (
+          <Empty text="Справочников пока нет. Обратитесь к администратору или добавьте их после первичной настройки системы." />
+        ) : null}
       </div>
       <Modal open={!!addFor} title="Новое значение" onClose={() => setAddFor(null)}>
         <form className="space-y-3" onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
-          add.mutate({ value: String(fd.get('value')), label: String(fd.get('label') || fd.get('value')) });
+          const label = String(fd.get('label') || '').trim();
+          if (!label) return;
+          add.mutate({ value: autoCode(label, 'VAL').toLowerCase(), label });
         }}>
-          <Input name="value" placeholder="Код" required />
-          <Input name="label" placeholder="Подпись" required />
+          <Input name="label" placeholder="Подпись (как увидят пользователи)" required />
           <Button type="submit" disabled={add.isPending}>Сохранить</Button>
         </form>
       </Modal>

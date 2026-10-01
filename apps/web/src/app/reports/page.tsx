@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { AppShell, Card, StatTile } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
-import { JOB_BOARD_LABELS, ruLabel } from '@skillaz/shared';
+import { JOB_BOARD_LABELS, HIRING_REQUEST_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 
 function BarList({
   rows,
@@ -108,7 +108,7 @@ export default function ReportsPage() {
         <Card className="p-4">
           <div className="font-bold text-[var(--brand-primary)] mb-1">Срок закрытия заявок</div>
           <div className="text-xs text-[var(--muted)] mb-3">
-            {k.avgCloseDays != null ? `Среднее: ${k.avgCloseDays} дн.` : 'Пока нет закрытых заявок — средний срок появится после первых CLOSED'}
+            {k.avgCloseDays != null ? `Среднее: ${k.avgCloseDays} дн.` : 'Пока нет закрытых заявок — средний срок появится после первых закрытий'}
           </div>
           <div className="space-y-2 max-h-56 overflow-auto">
             {closeTime.map((r: any) => (
@@ -147,7 +147,7 @@ export default function ReportsPage() {
             {(requests.data?.rows || []).slice(0, 20).map((r: any) => (
               <div key={r.id} className="flex justify-between gap-2 border-b border-[var(--line)] pb-1">
                 <Link href={`/requests/${r.id}`} className="sk-link truncate">{r.title}</Link>
-                <span className="text-xs text-[var(--muted)] shrink-0">{r.status}</span>
+                <span className="text-xs text-[var(--muted)] shrink-0">{ruLabel(HIRING_REQUEST_STATUS_LABELS, r.status)}</span>
               </div>
             ))}
           </div>

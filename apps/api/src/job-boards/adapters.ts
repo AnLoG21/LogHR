@@ -50,7 +50,7 @@ class DisabledAdapter implements JobBoardPort {
   constructor(private board: string) {}
   configured() { return false; }
   async publish(): Promise<JobBoardPublishResult> {
-    throw new Error(`${this.board} не настроен (нет API-ключа). Укажите токен в .env`);
+    throw new Error(`${this.board} не подключён. Обратитесь к администратору.`);
   }
   async search() {
     return { items: [], total: 0, disabled: true };
@@ -209,7 +209,7 @@ class TokenBoardAdapter implements JobBoardPort {
 
   async publish(input: JobBoardPublishInput): Promise<JobBoardPublishResult> {
     const token = this.token();
-    if (!token) throw new Error(`${this.board} не настроен (${this.envKey})`);
+    if (!token) throw new Error(`${this.board} не подключён. Обратитесь к администратору.`);
     const res = await fetch(this.publishUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
