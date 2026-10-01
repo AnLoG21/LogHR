@@ -86,6 +86,74 @@ export class NotificationsService {
     return result;
   }
 
+  async sendBulk(opts: {
+    candidateIds: string[];
+    templateCode: string;
+    stageId?: string;
+    vars?: Record<string, string>;
+    comment?: string;
+  }) {
+    const ids = Array.from(new Set(opts.candidateIds || [])).filter(Boolean).slice(0, 100);
+    const results: Array<{ id: string; ok: boolean; reason?: string; email?: string }> = [];
+    for (const id of ids) {
+      const c = await this.prisma.candidate.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          vacancy: { select: { title: true } },
+        },
+      });
+      if (!c) {
+        results.push({ id, ok: false, reason: 'not_found' });
+        continue;
+      }
+      if (!c.email) {
+        results.push({ id, ok: false, reason: 'no_email' });
+        continue;
+      }
+      const vars = {
+        name: `${c.firstName} ${c.lastName}`.trim(),
+        firstName: c.firstName,
+        lastName: c.lastName,
+        vacancy: c.vacancy?.title || '',
+        phone: c.phone || '',
+        datetime: opts.vars?.datetime || '',
+        ...(opts.vars || {}),
+      };
+      const sent = await this.sendEmail(c.email, opts.templateCode, vars);
+      if (opts.stageId) {
+        await this.prisma.candidate.update({
+          where: { id },
+          data: {
+            stageId: opts.stageId,
+            stageChangedAt: new Date(),
+            statusHistory: {
+              create: {
+                stageId: opts.stageId,
+                comment: opts.comment || `Массовая рассылка: ${opts.templateCode}`,
+              },
+            },
+          },
+        });
+      } else if (opts.comment) {
+        await this.prisma.comment.create({
+          data: { candidateId: id, body: opts.comment },
+        });
+      }
+      results.push({ id, ok: !!sent.ok, reason: (sent as any).reason || (sent as any).error, email: c.email });
+    }
+    return {
+      total: ids.length,
+      sent: results.filter((r) => r.ok).length,
+      skipped: results.filter((r) => !r.ok).length,
+      results,
+    };
+  }
+
   logs() {
     return this.prisma.notificationLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   }
@@ -111,13 +179,29 @@ export class NotificationsController {
     return this.service.sendEmail(dto.to, dto.templateCode, dto.vars || {});
   }
 
+  @Post('bulk')
+  bulk(
+    @Body()
+    dto: {
+      candidateIds: string[];
+      templateCode: string;
+      stageId?: string;
+      vars?: Record<string, string>;
+      comment?: string;
+    },
+  ) {
+    return this.service.sendBulk(dto);
+  }
+
   @Post('sms')
   sms(@Body() dto: { to: string; text: string }) {
     return this.service.sendSms(dto.to, dto.text);
   }
 
   @Get('logs')
-  logs() { return this.service.logs(); }
+  logs() {
+    return this.service.logs();
+  }
 }
 
 @Module({ controllers: [NotificationsController], providers: [NotificationsService], exports: [NotificationsService] })

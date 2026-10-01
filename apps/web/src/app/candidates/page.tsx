@@ -62,6 +62,10 @@ function CandidatesInner() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState<'invite' | 'reject' | null>(null);
+  const [bulkDatetime, setBulkDatetime] = useState('');
+  const [bulkStageId, setBulkStageId] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
   const [visibleFields, setVisibleFields] = useState({ source: true, time: true, gender: true, checks: true });
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -128,6 +132,30 @@ function CandidatesInner() {
       setFilterName('');
       qc.invalidateQueries({ queryKey: ['saved-filters'] });
     },
+  });
+
+  const bulkMail = useMutation({
+    mutationFn: (payload: { action: 'invite' | 'reject'; stageId?: string; datetime?: string }) =>
+      api('/notifications/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          candidateIds: Array.from(selected),
+          templateCode: payload.action === 'invite' ? 'INTERVIEW_INVITE' : 'REJECT_CANDIDATE',
+          stageId: payload.stageId || undefined,
+          vars: payload.datetime ? { datetime: payload.datetime } : {},
+          comment:
+            payload.action === 'invite'
+              ? `Массовое приглашение${payload.datetime ? ` (${payload.datetime})` : ''}`
+              : 'Массовый отказ кандидату',
+        }),
+      }),
+    onSuccess: (res: any) => {
+      setBulkMsg(`Отправлено: ${res.sent}, пропущено: ${res.skipped} (нет email / ошибка)`);
+      setBulkOpen(null);
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ['candidates'] });
+    },
+    onError: (e: any) => setBulkMsg(e?.message || 'Ошибка рассылки'),
   });
 
   const items = data?.items || [];
@@ -234,10 +262,35 @@ function CandidatesInner() {
           onClick={() => {
             setSelectMode((v) => !v);
             setSelected(new Set());
+            setBulkMsg('');
           }}
         >
           {selectMode ? `Выбрано: ${selected.size}` : 'Выбрать несколько'}
         </button>
+        {selectMode && selected.size > 0 ? (
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setBulkDatetime('');
+                setBulkStageId(stages.find((s: any) => /телефон|интервью|phone/i.test(s.name || s.code || ''))?.id || '');
+                setBulkOpen('invite');
+              }}
+            >
+              Пригласить
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setBulkDatetime('');
+                setBulkStageId(stages.find((s: any) => /отказ|other|друг/i.test(s.name || s.code || ''))?.id || '');
+                setBulkOpen('reject');
+              }}
+            >
+              Отказать
+            </Button>
+          </>
+        ) : null}
         <button type="button" className="sk-btn sk-btn-outline" style={{ fontSize: 13 }} onClick={() => setFieldsOpen(true)}>
           Настроить поля
         </button>
@@ -357,6 +410,47 @@ function CandidatesInner() {
         orgUnits={orgUnits.data?.items || []}
         requests={requests.data?.items || []}
       />
+
+      {bulkMsg ? (
+        <div className="text-sm text-[var(--muted)]" style={{ marginBottom: 8 }}>{bulkMsg}</div>
+      ) : null}
+
+      <Modal
+        open={!!bulkOpen}
+        title={bulkOpen === 'invite' ? 'Массовое приглашение' : 'Массовый отказ'}
+        onClose={() => setBulkOpen(null)}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="text-sm text-[var(--muted)]">
+            Кандидатов: {selected.size}. Письмо уйдёт на email (без SMTP — в лог MOCKED).
+          </div>
+          {bulkOpen === 'invite' ? (
+            <Input
+              placeholder="Дата/время интервью (подставится в письмо)"
+              value={bulkDatetime}
+              onChange={(e) => setBulkDatetime(e.target.value)}
+            />
+          ) : null}
+          <Select value={bulkStageId} onChange={(e) => setBulkStageId(e.target.value)}>
+            <option value="">Не менять этап</option>
+            {stages.map((s: any) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </Select>
+          <Button
+            disabled={bulkMail.isPending || !selected.size}
+            onClick={() =>
+              bulkMail.mutate({
+                action: bulkOpen!,
+                stageId: bulkStageId || undefined,
+                datetime: bulkDatetime || undefined,
+              })
+            }
+          >
+            {bulkMail.isPending ? 'Отправка…' : bulkOpen === 'invite' ? 'Отправить приглашения' : 'Отправить отказы'}
+          </Button>
+        </div>
+      </Modal>
 
       <Modal open={showForm} title="Новый кандидат" onClose={() => setShowForm(false)}>
         <form
