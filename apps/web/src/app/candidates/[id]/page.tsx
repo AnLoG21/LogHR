@@ -143,10 +143,16 @@ function CandidateDetailInner() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
   });
 
+  const [approveLink, setApproveLink] = useState('');
   const createCheck = useMutation({
     mutationFn: (type: string) =>
       api('/checks', { method: 'POST', body: JSON.stringify({ candidateId: id, type }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
+    onSuccess: (ch: any, type) => {
+      qc.invalidateQueries({ queryKey: ['candidate', id] });
+      if (type === 'FEEDBACK' && ch?.externalToken) {
+        setApproveLink(`${window.location.origin}/public/check/${ch.externalToken}`);
+      }
+    },
   });
 
   const call = useMutation({
@@ -265,7 +271,27 @@ function CandidateDetailInner() {
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
               <Button variant="ghost" onClick={() => setTab('history')}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone}>Позвонить</Button>
+              <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
+                На согласование
+              </Button>
             </div>
+            {approveLink ? (
+              <div style={{ marginTop: 12, padding: 12, background: '#f0fdfa', borderRadius: 8, fontSize: 13 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Ссылка для заказчика</div>
+                <a href={approveLink} className="sk-link" target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{approveLink}</a>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="sk-link"
+                    style={{ fontSize: 12 }}
+                    onClick={() => navigator.clipboard?.writeText(approveLink)}
+                  >
+                    Скопировать
+                  </button>
+                  <button type="button" className="sk-link" style={{ fontSize: 12 }} onClick={() => setApproveLink('')}>Скрыть</button>
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           <AiWidgets
@@ -334,14 +360,23 @@ function CandidateDetailInner() {
               {tab === 'checks' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(c.checks || []).map((ch: any) => (
-                    <div key={ch.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0' }}>
-                      <span>{ruLabel(CHECK_TYPE_LABELS, ch.type)}</span><span style={{ fontWeight: 500 }}>{ruLabel(CHECK_STATUS_LABELS, ch.status)}</span>
+                    <div key={ch.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0', alignItems: 'center' }}>
+                      <span>
+                        {ruLabel(CHECK_TYPE_LABELS, ch.type)}
+                        {ch.externalToken ? (
+                          <>
+                            {' · '}
+                            <a className="sk-link" href={`/public/check/${ch.externalToken}`} target="_blank" rel="noreferrer">ссылка</a>
+                          </>
+                        ) : null}
+                      </span>
+                      <span style={{ fontWeight: 500 }}>{ruLabel(CHECK_STATUS_LABELS, ch.status)}</span>
                     </div>
                   ))}
-                  <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, paddingTop: 8, flexWrap: 'wrap' }}>
                     <Button variant="ghost" onClick={() => createCheck.mutate('SECURITY')}>СБ</Button>
                     <Button variant="ghost" onClick={() => createCheck.mutate('HIRE_REQUEST')}>Приём</Button>
-                    <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')}>ОС</Button>
+                    <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')}>На согласование</Button>
                   </div>
                 </div>
               )}

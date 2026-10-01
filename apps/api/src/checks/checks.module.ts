@@ -57,17 +57,56 @@ export class ChecksService {
   async getByToken(token: string) {
     const check = await this.prisma.check.findUnique({
       where: { externalToken: token },
-      include: { candidate: { select: { firstName: true, lastName: true } } },
+      include: {
+        candidate: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            middleName: true,
+            city: true,
+            currentPosition: true,
+            desiredPosition: true,
+            about: true,
+            resumeText: true,
+            vacancy: { select: { title: true, city: true } },
+          },
+        },
+        assignee: { select: { firstName: true, lastName: true } },
+      },
     });
     if (!check) throw new NotFoundException();
-    return check;
+    const c = check.candidate as any;
+    return {
+      ...check,
+      candidate: c
+        ? {
+            ...c,
+            resumePreview: (c.resumeText || c.about || '').slice(0, 1200),
+            resumeText: undefined,
+            about: undefined,
+          }
+        : null,
+    };
   }
 
   async submitExternal(token: string, formData: any) {
     const check = await this.getByToken(token);
+    if (['APPROVED', 'REJECTED', 'CANCELLED'].includes(check.status)) {
+      return check;
+    }
+    const decision = String(formData?.decision || '').toUpperCase();
+    let status: CheckStatus = 'IN_PROGRESS';
+    if (decision === 'APPROVED' || decision === 'YES' || formData?.approved === true) status = 'APPROVED';
+    if (decision === 'REJECTED' || decision === 'NO' || formData?.approved === false) status = 'REJECTED';
+    const comment = formData?.notes || formData?.comment || check.comment;
     return this.prisma.check.update({
       where: { id: check.id },
-      data: { formData, status: 'IN_PROGRESS' },
+      data: {
+        formData: { ...(typeof check.formData === 'object' && check.formData ? check.formData : {}), ...formData },
+        status,
+        comment,
+      },
     });
   }
 }
