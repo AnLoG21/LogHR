@@ -37,7 +37,7 @@ export default function PublicAssessmentPage() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--sk-bg)' }}>
       <div className="bg-[var(--sk-header)] text-white px-6 py-10">
-        <div className="text-[10px] uppercase tracking-[0.25em] text-white/50">Таймыр Инвест</div>
+        <div className="text-[11px] uppercase tracking-[0.2em] text-white/75">Таймыр Инвест</div>
         <h1 className="text-3xl font-extrabold mt-2">{data?.questionnaire?.name || 'Опросник'}</h1>
         {data?.candidate ? (
           <p className="text-white/70 mt-2 text-sm">

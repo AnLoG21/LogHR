@@ -352,7 +352,7 @@ export function AdvancedFiltersModal({
                 const selected = mode === 'include' ? draft.stageIds.includes(s.id) : draft.excludeStageIds.includes(s.id);
                 return (
                   <div key={s.id} className="sk-card" style={{ padding: 10, boxShadow: 'none', border: '1px solid var(--sk-line, #e5e7eb)' }}>
-                    <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginBottom: 4 }}>{s.funnelName || 'Этап'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 4 }}>{s.funnelName || 'Этап'}</div>
                     <Check
                       checked={selected}
                       label={s.name}

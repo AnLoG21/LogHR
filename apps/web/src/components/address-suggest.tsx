@@ -45,7 +45,7 @@ export function AddressSuggest({
         onFocus={() => items.length && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
-      {note ? <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginTop: 4 }}>{note}</div> : null}
+      {note ? <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginTop: 4 }}>{note}</div> : null}
       {open && items.length ? (
         <div
           style={{

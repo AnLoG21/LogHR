@@ -557,6 +557,7 @@ function MergeDuplicatesModal({
     queryFn: () => api<any[]>(`/candidates/${candidateId}/duplicates`),
     enabled: open,
   });
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   const merge = useMutation({
     mutationFn: (mergeId: string) =>
       api(`/candidates/${candidateId}/merge`, { method: 'POST', body: JSON.stringify({ mergeId }) }),
@@ -588,15 +589,18 @@ function MergeDuplicatesModal({
                 {[d.phone, d.email, d.vacancy?.title, d.stage?.name].filter(Boolean).join(' · ') || '—'}
               </div>
             </div>
-            <Button
-              variant="ghost"
-              disabled={merge.isPending}
-              onClick={() => {
-                if (confirm(`Слить «${fullName(d)}» в текущую карточку?`)) merge.mutate(d.id);
-              }}
-            >
-              Слить сюда
-            </Button>
+            {confirmId === d.id ? (
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <Button variant="ghost" onClick={() => setConfirmId(null)}>Отмена</Button>
+                <Button disabled={merge.isPending} onClick={() => merge.mutate(d.id)}>
+                  {merge.isPending ? 'Сливаем…' : 'Да, слить'}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" disabled={merge.isPending} onClick={() => setConfirmId(d.id)}>
+                Слить сюда
+              </Button>
+            )}
           </div>
         ))}
         {merge.error ? <div style={{ fontSize: 13, color: '#b91c1c' }}>{(merge.error as Error).message}</div> : null}
@@ -611,7 +615,7 @@ function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: bo
   const risks = list(data?.risks);
   const strengths = list(data?.strengths);
   const score = typeof data?.score === 'number' ? data.score : null;
-  const tone = score == null ? '#64748b' : score >= 75 ? '#059669' : score >= 50 ? '#d97706' : '#dc2626';
+  const tone = score == null ? '#64748b' : score >= 75 ? '#047857' : score >= 50 ? '#b45309' : '#dc2626';
   const source = !data
     ? ''
     : data.stub
@@ -623,7 +627,7 @@ function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: bo
   const header = (title: string) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
       <div style={{ fontWeight: 600 }}>{title}</div>
-      {source ? <div style={{ fontSize: 11, color: 'var(--sk-muted)' }}>{source}</div> : null}
+      {source ? <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{source}</div> : null}
     </div>
   );
 
@@ -667,7 +671,7 @@ function AiWidgets({ data, loading, error, onRefresh }: { data: any; loading: bo
             {hints.map((h, i) => <li key={i}>{h}</li>)}
           </ol>
         ) : placeholder('Подсказок нет')}
-        <div style={{ marginTop: 'auto', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--sk-muted)' }}>
+        <div style={{ marginTop: 'auto', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--sk-muted)' }}>
           <span>{data?.generatedAt ? `Обновлено ${new Date(data.generatedAt).toLocaleString('ru-RU')}` : ''}</span>
           <button type="button" className="sk-link" onClick={onRefresh} disabled={loading} style={{ fontSize: 12 }}>
             {loading ? 'Обновляем…' : 'Пересчитать'}
@@ -782,7 +786,7 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
           ) : (
             <>
               {chat.data.configured && chat.data.live ? (
-                <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginTop: 4 }}>Переписка с HeadHunter подключена</div>
+                <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginTop: 4 }}>Переписка с HeadHunter подключена</div>
               ) : null}
               <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', display: 'grid', gap: 6 }}>
                 {(chat.data.messages || []).map((m: any) => (
@@ -796,7 +800,7 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
                       border: '1px solid #e5e7eb',
                     }}
                   >
-                    <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginBottom: 2 }}>
+                    <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 2 }}>
                       {m.fromEmployer ? 'Работодатель' : 'Кандидат'}
                       {m.createdAt ? ` · ${new Date(m.createdAt).toLocaleString('ru-RU')}` : ''}
                     </div>

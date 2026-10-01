@@ -387,7 +387,7 @@ function CandidatesInner() {
                   >
                     <Link href={`/candidates/${c.id}`} style={{ display: 'block' }} onClick={(e) => dragId && e.preventDefault()}>
                       <div style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3 }}>{fullName(c)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--sk-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {c.vacancy?.title || 'Без вакансии'}
                       </div>
                       {c.phone ? <div style={{ fontSize: 12, color: 'var(--sk-link)', marginTop: 4 }}>{c.phone}</div> : null}

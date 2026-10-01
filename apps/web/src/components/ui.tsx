@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { forwardRef, useEffect, useMemo, useState, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { NAV_GROUPS, ROLE_LABELS, SystemRole } from '@skillaz/shared';
 import { useAuth } from '@/lib/auth';
@@ -118,9 +118,26 @@ export function AppShell({
   const [menuQ, setMenuQ] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ main: true, tools: true, boards: true, settings: true });
 
+  const menuSearchRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
   }, [loading, user, router]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      const isCmdK = (e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л');
+      if (isCmdK || (e.key === '/' && !typing)) {
+        e.preventDefault();
+        setOpenNav(true);
+        menuSearchRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
 
   const groups = useMemo(() => {
@@ -150,7 +167,7 @@ export function AppShell({
         <button
           className="sk-btn sk-btn-icon app-menu-btn"
           onClick={() => setOpenNav(true)}
-          aria-label="menu"
+          aria-label="Открыть меню"
         >
           <Icon name="list" />
         </button>
@@ -171,9 +188,10 @@ export function AppShell({
             </span>
           </div>
           <button
+            type="button"
+            className="sk-btn sk-btn-outline"
             onClick={() => logout().then(() => router.push('/login'))}
-            style={{ fontSize: 12, color: 'var(--sk-muted)', background: 'none', border: 0, cursor: 'pointer' }}
-            title="Выйти"
+            title="Выйти из системы"
           >
             Выйти
           </button>
@@ -182,7 +200,7 @@ export function AppShell({
 
       <div className="app-body">
         {openNav ? (
-          <button className="app-sidebar-backdrop" onClick={() => setOpenNav(false)} aria-label="close" />
+          <button className="app-sidebar-backdrop" onClick={() => setOpenNav(false)} aria-label="Закрыть меню" />
         ) : null}
 
         <aside className={clsx('app-sidebar', openNav && 'open')}>
@@ -192,9 +210,17 @@ export function AppShell({
                 <Icon name="search" className="w-4 h-4" />
               </span>
               <input
+                ref={menuSearchRef}
                 className="sk-input"
                 style={{ paddingLeft: 32, height: 36, fontSize: 13, background: '#fff' }}
-                placeholder="Поиск по меню"
+                placeholder="Поиск по меню (Ctrl+K)"
+                aria-label="Поиск по меню"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setMenuQ('');
+                    e.currentTarget.blur();
+                  }
+                }}
                 value={menuQ}
                 onChange={(e) => setMenuQ(e.target.value)}
               />
@@ -239,7 +265,7 @@ export function AppShell({
             ))}
           </nav>
 
-          <div style={{ padding: 12, borderTop: '1px solid var(--sk-line)', fontSize: 11, color: 'var(--sk-muted)' }}>
+          <div style={{ padding: 12, borderTop: '1px solid var(--sk-line)', fontSize: 12, color: 'var(--sk-muted)' }}>
             {ROLE_LABELS[user.role as SystemRole] || user.role}
           </div>
         </aside>
@@ -371,7 +397,7 @@ export function StageStrip({
               active ? 'border-[var(--sk-green)]' : 'border-[var(--sk-line)]',
             )}
           >
-            <div className="text-[11px] text-[var(--sk-muted)] leading-snug">{s.name}</div>
+            <div className="text-xs text-[var(--sk-muted)] leading-snug">{s.name}</div>
             <div className="text-xl font-bold mt-1 tabular-nums">{get(s.id)}</div>
           </div>
         );
@@ -390,6 +416,8 @@ export function StatTile({ label, value, href }: { label: string; value: number 
   return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
+const modalStack: object[] = [];
+
 export function Modal({
   open,
   title,
@@ -405,13 +433,46 @@ export function Modal({
   wide?: boolean;
   maxWidth?: number | string;
 }) {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const prevFocus = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const first = panel?.querySelector<HTMLElement>('input, select, textarea, [contenteditable="true"]');
+    (first || panel)?.focus();
+    const token = {};
+    modalStack.push(token);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && modalStack[modalStack.length - 1] === token) {
+        e.stopPropagation();
+        closeRef.current();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      const i = modalStack.indexOf(token);
+      if (i >= 0) modalStack.splice(i, 1);
+      prevFocus?.focus?.();
+    };
+  }, [open]);
+
   if (!open) return null;
   if (typeof document === 'undefined') return null;
   const mw = maxWidth ?? (wide ? 1100 : 480);
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <button type="button" onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', border: 0, cursor: 'pointer' }} aria-label="close" />
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.4)', cursor: 'pointer' }} aria-hidden />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className="sk-card animate-rise"
         style={{
           position: 'relative',
@@ -423,12 +484,15 @@ export function Modal({
           flexDirection: 'column',
           overflow: 'hidden',
           zIndex: 1,
+          borderRadius: 'var(--sk-radius-xl)',
+          boxShadow: '0 20px 48px rgba(15, 23, 42, 0.16)',
+          outline: 'none',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: wide ? 0 : 16, padding: wide ? '16px 20px' : 0, borderBottom: wide ? '1px solid var(--sk-line, #e5e7eb)' : undefined, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{title}</h3>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--sk-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} aria-label="close">
-            ×
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: wide ? 0 : 12, padding: wide ? '12px 12px 12px 20px' : 0, borderBottom: wide ? '1px solid var(--sk-line, #e5e7eb)' : undefined, flexShrink: 0 }}>
+          <h3 id={titleId} style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</h3>
+          <button type="button" onClick={onClose} className="sk-modal-close" aria-label="Закрыть" title="Закрыть (Esc)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: wide ? '0 20px 16px' : 0 }}>{children}</div>

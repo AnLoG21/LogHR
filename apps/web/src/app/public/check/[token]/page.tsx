@@ -46,7 +46,7 @@ export default function PublicCheckPage() {
   return (
     <div className="min-h-screen" style={{ background: '#f5f7f9' }}>
       <div className="bg-[var(--brand-primary)] text-white px-6 py-10">
-        <div className="text-[10px] uppercase tracking-[0.25em] text-white/50">{brand}</div>
+        <div className="text-[11px] uppercase tracking-[0.2em] text-white/75">{brand}</div>
         <h1 className="text-3xl font-extrabold mt-2">
           {isFeedback ? 'Согласование кандидата' : 'Форма проверки'}
         </h1>

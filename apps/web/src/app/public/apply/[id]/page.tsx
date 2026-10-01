@@ -44,7 +44,7 @@ export default function PublicApplyPage() {
   return (
     <div className="min-h-screen" style={{ background: '#f5f7f9' }}>
       <div style={{ background: color, color: '#fff', padding: '40px 24px' }}>
-        <div style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.7 }}>{brand}</div>
+        <div style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.8 }}>{brand}</div>
         <h1 style={{ fontSize: 28, fontWeight: 800, marginTop: 8 }}>Отклик на вакансию</h1>
         {data ? <p style={{ marginTop: 8, opacity: 0.9 }}>{data.title}{data.city ? ` · ${data.city}` : ''}</p> : null}
       </div>

@@ -51,7 +51,7 @@ export default function LoginPage() {
             <img src="/logo.png" alt="" width={48} height={48} style={{ display: 'block' }} />
             <div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{COMPANY_NAME}</div>
-              <div style={{ fontSize: 14, color: '#8a9199', marginTop: 6 }}>Система подбора персонала</div>
+              <div style={{ fontSize: 14, color: 'var(--sk-muted)', marginTop: 6 }}>Система подбора персонала</div>
             </div>
           </div>
 
@@ -76,7 +76,6 @@ export default function LoginPage() {
             <div className="login-field-box">
               <input
                 className="sk-input"
-                style={{ paddingRight: 40 }}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 type={showPass ? 'text' : 'password'}
@@ -85,13 +84,16 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 placeholder="Пароль"
               />
-              <button type="button" className="login-eye" onClick={() => setShowPass((v) => !v)} tabIndex={-1}>
+              <button type="button" className="login-eye" onClick={() => setShowPass((v) => !v)}
+                aria-label={showPass ? 'Скрыть пароль' : 'Показать пароль'}
+                title={showPass ? 'Скрыть пароль' : 'Показать пароль'}
+              >
                 <Icon name={showPass ? 'eye' : 'eye-off'} className="w-5 h-5" />
               </button>
             </div>
           </label>
 
-          {error ? <div style={{ color: '#e25555', fontSize: 14, marginBottom: 12 }}>{error}</div> : null}
+          {error ? <div role="alert" style={{ color: 'var(--sk-danger)', fontSize: 14, marginBottom: 12 }}>{error}</div> : null}
 
           <button type="submit" className="login-submit" disabled={busy}>
             {busy ? 'Вход…' : 'Войти'}
