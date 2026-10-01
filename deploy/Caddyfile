@@ -1,9 +1,6 @@
-{
-	email {$ACME_EMAIL:admin@localhost}
-}
-
+# Reverse proxy in front of the Node apps: /api/* -> NestJS (api:3001), everything else -> Next.js (web:3000).
 # SITE_ADDRESS: a domain (automatic HTTPS) or ":80" for plain HTTP by IP
-{$SITE_ADDRESS:localhost} {
+{$SITE_ADDRESS::80} {
 	encode gzip
 	request_body /api/* {
 		max_size 50MB
