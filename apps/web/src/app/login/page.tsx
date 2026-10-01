@@ -10,8 +10,8 @@ const COMPANY_NAME = 'ТАЙМЫР ИНВЕСТ';
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState('admin@loghr.local');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,7 +45,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <section className="login-form-pane">
-        <form onSubmit={onSubmit} className="login-form-wrap">
+        <form onSubmit={onSubmit} className="login-form-wrap" autoComplete="off">
           <div style={{ marginBottom: 40, display: 'flex', alignItems: 'center', gap: 14 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.png" alt="" width={48} height={48} style={{ display: 'block' }} />
@@ -63,8 +63,10 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
+                name="username"
                 required
                 autoComplete="username"
+                placeholder="email@company.ru"
               />
             </div>
           </label>
@@ -78,8 +80,10 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 type={showPass ? 'text' : 'password'}
+                name="password"
                 required
                 autoComplete="current-password"
+                placeholder="Пароль"
               />
               <button type="button" className="login-eye" onClick={() => setShowPass((v) => !v)} tabIndex={-1}>
                 <Icon name={showPass ? 'eye' : 'eye-off'} className="w-5 h-5" />
