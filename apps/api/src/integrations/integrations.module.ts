@@ -442,6 +442,12 @@ export class IntegrationsController {
   }
 
   @ApiBearerAuth()
+  @Get('max/dialogs')
+  maxDialogs() {
+    return this.maxBot.dialogs();
+  }
+
+  @ApiBearerAuth()
   @Post('max/inbox/read-all')
   maxInboxReadAll() {
     return this.maxBot.markAllRead();

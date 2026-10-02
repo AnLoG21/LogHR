@@ -290,6 +290,54 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     return { unread, items: items.slice(0, 30) };
   }
 
+  async dialogs() {
+    const list = await this.prisma.candidate.findMany({
+      where: { isDepersonalized: false },
+      select: { id: true, firstName: true, lastName: true, middleName: true, phone: true, extra: true },
+      take: 800,
+      orderBy: { updatedAt: 'desc' },
+    });
+    const items: Array<{
+      candidateId: string;
+      name: string;
+      phone: string | null;
+      linked: boolean;
+      unread: number;
+      invite: string | null;
+      lastMessage: { id: string; text: string; fromBot: boolean; at: string } | null;
+    }> = [];
+    for (const c of list) {
+      const extra = this.extraOf(c);
+      const thread = extra.maxThread || [];
+      if (!extra.maxUserId && !thread.length) continue;
+      const last = thread.length
+        ? thread[thread.length - 1]
+        : extra.maxLastInbound
+          ? { id: extra.maxLastInbound.id, text: extra.maxLastInbound.text, fromBot: false, at: extra.maxLastInbound.at }
+          : null;
+      items.push({
+        candidateId: c.id,
+        name: [c.lastName, c.firstName, c.middleName].filter(Boolean).join(' ') || 'Кандидат',
+        phone: c.phone || null,
+        linked: !!extra.maxUserId,
+        unread: extra.maxUnread || 0,
+        invite: this.inviteLink(c.id),
+        lastMessage: last,
+      });
+    }
+    items.sort((a, b) => {
+      const atA = a.lastMessage?.at || '';
+      const atB = b.lastMessage?.at || '';
+      if (atA === atB) return (b.unread || 0) - (a.unread || 0);
+      return atA < atB ? 1 : -1;
+    });
+    return {
+      configured: this.configured(),
+      botUsername: this.botUsername() || null,
+      items,
+    };
+  }
+
   async markRead(candidateId: string) {
     const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
     if (!c) return { ok: false };
@@ -343,10 +391,13 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       }
       if (candidate && userId) {
         await this.saveLink(candidate.id, userId, chatId, user?.username);
-        await this.sendText(userId, `Здравствуйте! Вы связаны с кандидатом ${candidate.lastName} ${candidate.firstName} в системе подбора. Можно писать сюда — сообщение увидит рекрутер.`);
+        await this.sendText(
+          userId,
+          'Здравствуйте! Можно писать сюда — сообщение увидит рекрутер, и вы сможете общаться прямо в этом чате.',
+        );
         await this.pushThread(candidate.id, {
           id: `sys-${Date.now()}`,
-          text: 'Кандидат открыл бота MAX и связал переписку',
+          text: 'Кандидат начал переписку в MAX',
           fromBot: true,
           at: new Date().toISOString(),
         });

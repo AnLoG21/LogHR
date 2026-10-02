@@ -332,9 +332,21 @@ export function AppShell({
         </aside>
 
         <main className="app-main">
-          <div className={clsx('animate-rise', !flush && 'app-main-inner')} style={flush ? undefined : undefined}>
+          <div
+            className={clsx('animate-rise', !flush && 'app-main-inner', flush && 'app-main-flush')}
+          >
             {(title || actions) ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  marginBottom: flush ? 8 : 16,
+                  ...(flush ? { padding: '16px 20px 0' } : null),
+                }}
+              >
                 <div>
                   {title ? <h1 className="app-page-title">{title}</h1> : null}
                   {subtitle ? <p style={{ color: 'var(--sk-muted)', margin: '4px 0 0', fontSize: 14 }}>{subtitle}</p> : null}
@@ -385,7 +397,7 @@ function MaxMessageToasts({ items }: { items: MaxInboxItem[] }) {
   return (
     <div className="msg-toast-stack" aria-live="polite">
       {toasts.map((t) => (
-        <Link key={t.key} href={`/candidates/${t.candidateId}?tab=messengers`} className="msg-toast">
+        <Link key={t.key} href={`/messengers?chat=${t.candidateId}`} className="msg-toast">
           <div className="msg-toast-from">{t.name || 'Кандидат'}</div>
           <div className="msg-toast-text">{t.text}</div>
           <div className="msg-toast-ch">MAX</div>
