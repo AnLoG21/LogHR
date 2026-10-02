@@ -3,8 +3,25 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/guards';
 import { visibilityWhere } from '../common/visibility';
+import { StorageService } from '../storage/storage.module';
 
 const API = 'https://platform-api2.max.ru';
+
+type MaxAttachmentMeta = {
+  type: 'image' | 'video' | 'audio' | 'file';
+  name?: string;
+  mime?: string;
+  url?: string;
+  size?: number;
+};
+
+type MaxThreadMsg = {
+  id: string;
+  text: string;
+  fromBot: boolean;
+  at: string;
+  attachment?: MaxAttachmentMeta;
+};
 
 type MaxExtra = {
   maxUserId?: number;
@@ -13,7 +30,7 @@ type MaxExtra = {
   maxLinkedAt?: string;
   maxUnread?: number;
   maxLastInbound?: { id: string; text: string; at: string };
-  maxThread?: Array<{ id: string; text: string; fromBot: boolean; at: string }>;
+  maxThread?: MaxThreadMsg[];
 };
 
 type CandidateLite = {
@@ -34,7 +51,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   private lastPollAt: string | null = null;
   private lastPollError: string | null = null;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private storage: StorageService) {}
 
   onModuleInit() {
     if (!this.configured()) return;
@@ -306,7 +323,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   /** Атомарно добавляет сообщение; пропускает дубликат по id (mid) */
   private async pushThread(
     candidateId: string,
-    entry: { id: string; text: string; fromBot: boolean; at: string },
+    entry: MaxThreadMsg,
   ): Promise<{ added: boolean }> {
     return this.prisma.$transaction(async (tx) => {
       const c = await tx.candidate.findUnique({ where: { id: candidateId } });
@@ -326,6 +343,148 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       });
       return { added: true };
     });
+  }
+
+  private mimeToUploadType(mime?: string, fileName?: string): MaxAttachmentMeta['type'] {
+    const m = (mime || '').toLowerCase();
+    const n = (fileName || '').toLowerCase();
+    if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|heic|tiff?)$/.test(n)) return 'image';
+    if (m.startsWith('video/') || /\.(mp4|mov|mkv|webm)$/.test(n)) return 'video';
+    if (m.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|aac)$/.test(n)) return 'audio';
+    return 'file';
+  }
+
+  private labelOfType(type: string) {
+    const t = String(type || '').toLowerCase();
+    if (t === 'image') return 'Фото';
+    if (t === 'video') return 'Видео';
+    if (t === 'audio') return 'Аудио';
+    if (t === 'file') return 'Файл';
+    if (t === 'sticker') return 'Стикер';
+    if (t === 'contact') return 'Контакт';
+    if (t === 'location') return 'Геолокация';
+    if (t === 'share') return 'Ссылка';
+    return 'Вложение';
+  }
+
+  private sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** Двухшаговая загрузка в MAX → token для attachments */
+  private async uploadToMax(
+    type: MaxAttachmentMeta['type'],
+    buffer: Buffer,
+    fileName: string,
+    mimeType?: string,
+  ): Promise<{ token: string } | { ok: false; note: string; status?: number }> {
+    const init = await fetch(`${API}/uploads?type=${encodeURIComponent(type)}`, {
+      method: 'POST',
+      headers: this.headers(),
+    });
+    const initText = await init.text().catch(() => '');
+    if (!init.ok) {
+      return { ok: false, status: init.status, note: initText.slice(0, 300) || 'Не удалось получить URL загрузки MAX' };
+    }
+    let endpoint: any = {};
+    try {
+      endpoint = JSON.parse(initText);
+    } catch {
+      return { ok: false, note: 'Некорректный ответ MAX /uploads' };
+    }
+    const uploadUrl = String(endpoint.url || '');
+    if (!uploadUrl) return { ok: false, note: 'MAX не вернул URL для загрузки файла' };
+
+    const form = new FormData();
+    const blob = new Blob([new Uint8Array(buffer)], { type: mimeType || 'application/octet-stream' });
+    form.append('data', blob, fileName || 'file');
+    const up = await fetch(uploadUrl, { method: 'POST', body: form });
+    const upText = await up.text().catch(() => '');
+    if (!up.ok) {
+      return { ok: false, status: up.status, note: upText.slice(0, 300) || 'Ошибка загрузки файла в MAX' };
+    }
+    let uploaded: any = {};
+    try {
+      uploaded = upText ? JSON.parse(upText) : {};
+    } catch {
+      uploaded = {};
+    }
+    const token =
+      String(uploaded.token || uploaded.payload?.token || endpoint.token || '').trim() ||
+      (type === 'video' || type === 'audio' ? String(endpoint.token || '').trim() : '');
+    if (!token) {
+      return { ok: false, note: 'MAX не вернул token вложения после загрузки' };
+    }
+    return { token };
+  }
+
+  private async sendWithAttachments(
+    userId: number,
+    text: string | undefined,
+    attachments: Array<{ type: string; payload: { token: string } }>,
+  ) {
+    const body: any = { attachments };
+    if (text?.trim()) body.text = text.trim();
+    let lastNote = '';
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt) await this.sleep(800 * attempt);
+      const res = await fetch(`${API}/messages?user_id=${userId}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return { ok: true as const };
+      const err = await res.text().catch(() => '');
+      lastStatus = res.status;
+      lastNote = err.slice(0, 300) || res.statusText;
+      if (!/attachment\.not\.ready|not ready|processing/i.test(err) && res.status !== 429) break;
+    }
+    return { ok: false as const, status: lastStatus, note: lastNote };
+  }
+
+  private async persistInboundAttachment(
+    att: any,
+  ): Promise<{ meta?: MaxAttachmentMeta; label: string }> {
+    const typeRaw = String(att?.type || 'file').toLowerCase();
+    const type: MaxAttachmentMeta['type'] =
+      typeRaw === 'image' || typeRaw === 'video' || typeRaw === 'audio' || typeRaw === 'file'
+        ? typeRaw
+        : 'file';
+    const payload = att?.payload || {};
+    const name = String(payload.filename || payload.file_name || payload.name || type).slice(0, 180);
+    const remoteUrl = String(payload.url || payload.photoUrl || payload.fileUrl || '').trim();
+    const labelMap: Record<string, string> = {
+      image: 'Фото',
+      video: 'Видео',
+      audio: 'Аудио',
+      file: 'Файл',
+      sticker: 'Стикер',
+      contact: 'Контакт',
+      location: 'Геолокация',
+      share: 'Ссылка',
+    };
+    const label = labelMap[typeRaw] || typeRaw;
+
+    if (!remoteUrl || !/^https?:\/\//i.test(remoteUrl)) {
+      return { label, meta: { type, name } };
+    }
+
+    try {
+      const res = await fetch(remoteUrl, { headers: this.headers() });
+      if (!res.ok) {
+        return { label, meta: { type, name, url: remoteUrl } };
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const mime = res.headers.get('content-type') || undefined;
+      const uploaded = await this.storage.upload(buf, name || `max-${type}`, mime);
+      return {
+        label,
+        meta: { type, name, mime, url: uploaded.url, size: buf.length },
+      };
+    } catch {
+      return { label, meta: { type, name, url: remoteUrl } };
+    }
   }
 
   private nameOf(c: CandidateLite) {
@@ -494,35 +653,51 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       if (msg?.sender?.is_bot) return { ok: true, ignored: 'own' };
       const text = String(msg?.body?.text || msg?.text || '').trim();
       const attachments = msg?.body?.attachments || msg?.attachments || [];
+      const mediaAtts = (Array.isArray(attachments) ? attachments : []).filter(
+        (a: any) => a && !['inline_keyboard'].includes(String(a.type || '')),
+      );
       const contactPhone =
-        attachments.find?.((a: any) => a.type === 'contact')?.payload?.vcf_info ||
-        attachments.find?.((a: any) => a.type === 'contact')?.payload?.phone ||
+        mediaAtts.find?.((a: any) => a.type === 'contact')?.payload?.vcf_info ||
+        mediaAtts.find?.((a: any) => a.type === 'contact')?.payload?.phone ||
         '';
-      const nonTextHint = !text && attachments.length
-        ? `[Вложение: ${attachments.map((a: any) => a.type || 'file').join(', ')}]`
-        : '';
-      const bodyText = text || nonTextHint;
+      let savedAtt: MaxAttachmentMeta | undefined;
+      let attLabel = '';
+      const firstMedia = mediaAtts.find((a: any) =>
+        ['image', 'video', 'audio', 'file', 'sticker'].includes(String(a.type || '')),
+      );
+      if (firstMedia) {
+        const persisted = await this.persistInboundAttachment(firstMedia);
+        savedAtt = persisted.meta;
+        attLabel = persisted.label;
+      }
+      const labels = mediaAtts.map((a: any) => this.labelOfType(a.type || 'file')).join(', ');
+      const nonTextHint =
+        !text && mediaAtts.length
+          ? `[${labels}${savedAtt?.name && savedAtt.name !== attLabel ? `: ${savedAtt.name}` : ''}]`
+          : '';
+      const bodyText = text || nonTextHint || (savedAtt ? `[${attLabel || this.labelOfType(savedAtt.type)}]` : '');
       let candidate = userId ? await this.findByMaxUser(userId) : null;
       if (!candidate && contactPhone) candidate = await this.findByPhone(String(contactPhone));
       if (candidate && userId) {
         await this.saveLink(candidate.id, userId, chatId, user?.username);
-        if (bodyText) {
+        if (bodyText || savedAtt) {
           const mid = String(msg?.body?.mid || msg?.mid || msg?.id || `in-${userId}-${msg?.timestamp || Date.now()}`);
           const pushed = await this.pushThread(candidate.id, {
             id: mid,
-            text: bodyText,
+            text: bodyText || `[${attLabel || this.labelOfType(savedAtt?.type || 'file')}]`,
             fromBot: false,
             at: this.normalizeAt(msg?.timestamp),
+            ...(savedAtt ? { attachment: savedAtt } : {}),
           });
           if (pushed.added) {
+            const commentBody = `[MAX] ${bodyText || savedAtt?.name || 'вложение'}`;
             const exists = await this.prisma.comment.findFirst({
-              where: { candidateId: candidate.id, body: `[MAX] ${bodyText}` },
+              where: { candidateId: candidate.id, body: commentBody },
               orderBy: { createdAt: 'desc' },
             });
-            // не плодим одинаковый комментарий в ту же секунду при ретрае
             if (!exists || Date.now() - new Date(exists.createdAt).getTime() > 60_000) {
               await this.prisma.comment.create({
-                data: { candidateId: candidate.id, body: `[MAX] ${bodyText}` },
+                data: { candidateId: candidate.id, body: commentBody },
               });
             }
           }
@@ -605,6 +780,78 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
         to: String(extra.maxUserId),
         subject: candidateId,
         body: text.trim(),
+        status: 'SENT',
+      },
+    });
+    return { ok: true };
+  }
+
+  async sendFile(
+    candidateId: string,
+    file: { buffer: Buffer; originalname?: string; mimetype?: string; size?: number },
+    user: AuthUser,
+    caption?: string,
+  ) {
+    if (!this.configured()) return { ok: false, note: 'Бот MAX не настроен' };
+    if (!file?.buffer?.length) return { ok: false, note: 'Выберите файл' };
+    const max = Number(process.env.UPLOAD_MAX_BYTES || 20 * 1024 * 1024);
+    if ((file.size || file.buffer.length) > max) {
+      return { ok: false, note: `Файл больше ${Math.round(max / 1024 / 1024)} МБ` };
+    }
+    const c = await this.assertCandidateAccess(candidateId, user);
+    const extra = this.extraOf(c);
+    if (!extra.maxUserId) {
+      return {
+        ok: false,
+        note: 'Сначала дождитесь, пока кандидат откроет ссылку-приглашение',
+        invite: this.inviteLink(candidateId),
+      };
+    }
+    const fileName = file.originalname || 'file';
+    const mime = file.mimetype || 'application/octet-stream';
+    const type = this.mimeToUploadType(mime, fileName);
+    const uploaded = await this.uploadToMax(type, file.buffer, fileName, mime);
+    if ('ok' in uploaded && uploaded.ok === false) return uploaded;
+
+    const sent = await this.sendWithAttachments(
+      extra.maxUserId,
+      caption,
+      [{ type, payload: { token: (uploaded as { token: string }).token } }],
+    );
+    if (!sent.ok) return sent;
+
+    let localUrl: string | undefined;
+    try {
+      const stored = await this.storage.upload(file.buffer, fileName, mime);
+      localUrl = stored.url;
+      await this.prisma.attachment.create({
+        data: {
+          candidateId,
+          fileName,
+          mimeType: mime,
+          url: stored.url,
+          size: file.size || file.buffer.length,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`MAX local store failed: ${e?.message || e}`);
+    }
+
+    const label = type === 'image' ? 'Фото' : type === 'video' ? 'Видео' : type === 'audio' ? 'Аудио' : 'Файл';
+    const text = caption?.trim() || `${label}: ${fileName}`;
+    await this.pushThread(candidateId, {
+      id: `out-file-${user.id}-${Date.now()}`,
+      text,
+      fromBot: true,
+      at: new Date().toISOString(),
+      attachment: { type, name: fileName, mime, url: localUrl, size: file.size || file.buffer.length },
+    });
+    await this.prisma.notificationLog.create({
+      data: {
+        channel: 'MAX',
+        to: String(extra.maxUserId),
+        subject: candidateId,
+        body: text,
         status: 'SENT',
       },
     });

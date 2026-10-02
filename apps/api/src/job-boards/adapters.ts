@@ -113,12 +113,7 @@ class HhAdapter implements JobBoardPort {
   }
 
   async publish(input: JobBoardPublishInput): Promise<JobBoardPublishResult> {
-    let headers: Record<string, string>;
-    try {
-      headers = await this.headers();
-    } catch {
-      return new MockAdapter('HH').publish(input);
-    }
+    const headers = await this.headers();
     const areaId = await this.resolveAreaId(input.city);
     const roleId = process.env.HH_DEFAULT_PROFESSIONAL_ROLE_ID || '40'; // другое
     const description = (input.description || input.title || '').trim();
@@ -153,12 +148,7 @@ class HhAdapter implements JobBoardPort {
   }
 
   async search(input: JobBoardSearchInput) {
-    let headers: Record<string, string>;
-    try {
-      headers = await this.headers();
-    } catch {
-      return new MockAdapter('HH').search(input);
-    }
+    const headers = await this.headers();
     const params = new URLSearchParams();
     if (input.text) params.set('text', input.text);
     if (input.area) params.set('area', input.area);

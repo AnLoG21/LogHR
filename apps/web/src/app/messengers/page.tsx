@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AppShell, Button, Card, Empty, Input } from '@/components/ui';
+import { AppShell, Button, Card, Empty, Icon, Input } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 
 type Tab = 'max' | 'whatsapp' | 'telegram';
@@ -63,8 +63,10 @@ function MessengersInner() {
   const [search, setSearch] = useState('');
   const [text, setText] = useState('');
   const [mobileChat, setMobileChat] = useState(!!sp.get('chat'));
+  const [sendError, setSendError] = useState('');
   const qc = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const dialogs = useQuery({
     queryKey: ['max-dialogs'],
@@ -93,12 +95,39 @@ function MessengersInner() {
     onSuccess: (res: any) => {
       if (res?.ok) {
         setText('');
+        setSendError('');
         qc.invalidateQueries({ queryKey: ['max-chat', selectedId] });
         qc.invalidateQueries({ queryKey: ['max-dialogs'] });
         qc.invalidateQueries({ queryKey: ['max-inbox'] });
+      } else {
+        setSendError(res?.note || 'Не удалось отправить');
       }
     },
+    onError: (e: any) => setSendError(e?.message || 'Не удалось отправить'),
   });
+
+  const sendFile = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (text.trim()) fd.append('text', text.trim());
+      return api(`/integrations/max-chat/${selectedId}/file`, { method: 'POST', body: fd });
+    },
+    onSuccess: (res: any) => {
+      if (res?.ok) {
+        setText('');
+        setSendError('');
+        qc.invalidateQueries({ queryKey: ['max-chat', selectedId] });
+        qc.invalidateQueries({ queryKey: ['max-dialogs'] });
+        qc.invalidateQueries({ queryKey: ['max-inbox'] });
+      } else {
+        setSendError(res?.note || 'Не удалось отправить файл');
+      }
+    },
+    onError: (e: any) => setSendError(e?.message || 'Не удалось отправить файл'),
+  });
+
+  const busy = send.isPending || sendFile.isPending;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -264,7 +293,7 @@ function MessengersInner() {
                     .map((m: any) => (
                       <div key={m.id} className={clsx('tg-bubble-row', m.fromBot ? 'out' : 'in')}>
                         <div className={clsx('tg-bubble', m.fromBot ? 'out' : 'in')}>
-                          <div className="tg-bubble-text">{m.text}</div>
+                          <MaxBubbleBody m={m} />
                           <div className="tg-bubble-meta">{formatMsgTime(m.at)}</div>
                         </div>
                       </div>
@@ -295,10 +324,32 @@ function MessengersInner() {
                   className="tg-composer"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (!text.trim() || send.isPending || !chat.data?.linked) return;
+                    if (!text.trim() || busy || !chat.data?.linked) return;
                     send.mutate();
                   }}
                 >
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!f || !chat.data?.linked || busy) return;
+                      sendFile.mutate(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="tg-attach"
+                    disabled={!chat.data?.linked || busy}
+                    aria-label="Прикрепить файл"
+                    title="Фото, видео или файл"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    <Icon name="file" />
+                  </button>
                   <input
                     className="tg-composer-input"
                     placeholder={chat.data?.linked ? 'Написать сообщение…' : 'Сначала дождитесь, пока кандидат откроет ссылку'}
@@ -309,15 +360,16 @@ function MessengersInner() {
                   <button
                     type="submit"
                     className="tg-send"
-                    disabled={!text.trim() || send.isPending || !chat.data?.linked}
+                    disabled={!text.trim() || busy || !chat.data?.linked}
                     aria-label="Отправить"
                   >
                     ➤
                   </button>
                 </form>
-                {send.data && !(send.data as any).ok ? (
-                  <div className="tg-send-error">{(send.data as any).note}</div>
+                {sendError || (send.data && !(send.data as any).ok) ? (
+                  <div className="tg-send-error">{sendError || (send.data as any).note}</div>
                 ) : null}
+                {sendFile.isPending ? <div className="tg-send-hint">Отправка файла…</div> : null}
               </>
             )}
           </section>
@@ -354,3 +406,46 @@ function MessengersInner() {
     </AppShell>
   );
 }
+
+function MaxBubbleBody({ m }: { m: any }) {
+  const att = m?.attachment;
+  const url = att?.url && (att.url.startsWith('/') || /^https?:\/\//i.test(att.url)) ? att.url : null;
+  const isImage = att?.type === 'image' || (att?.mime || '').startsWith('image/');
+  const caption = String(m?.text || '').trim();
+  const hideCaption =
+    !!att &&
+    caption &&
+    (/^\[(Фото|Видео|Аудио|Файл|Вложение)/.test(caption) ||
+      caption === `Фото: ${att.name}` ||
+      caption === `Видео: ${att.name}` ||
+      caption === `Аудио: ${att.name}` ||
+      caption === `Файл: ${att.name}`);
+
+  return (
+    <>
+      {att ? (
+        <div className="tg-bubble-att">
+          {isImage && url ? (
+            <a href={url} target="_blank" rel="noreferrer" className="tg-bubble-img-link">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={att.name || 'Фото'} className="tg-bubble-img" />
+            </a>
+          ) : url ? (
+            <a href={url} target="_blank" rel="noreferrer" className="tg-bubble-file">
+              <Icon name="file" />
+              <span>{att.name || 'Файл'}</span>
+            </a>
+          ) : (
+            <div className="tg-bubble-file tg-bubble-file-static">
+              <Icon name="file" />
+              <span>{att.name || 'Вложение'}</span>
+            </div>
+          )}
+        </div>
+      ) : null}
+      {caption && !hideCaption ? <div className="tg-bubble-text">{caption}</div> : null}
+      {!caption && !att ? <div className="tg-bubble-text">—</div> : null}
+    </>
+  );
+}
+

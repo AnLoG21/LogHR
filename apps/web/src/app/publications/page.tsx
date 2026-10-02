@@ -37,6 +37,7 @@ function PublicationsInner() {
   const descRef = useRef<TokenFieldHandle>(null);
   const tplFocus = useRef<'title' | 'description'>('description');
 
+  const [pubError, setPubError] = useState('');
   const pubs = useQuery({ queryKey: ['publications'], queryFn: () => api<any>('/publications') });
   const templates = useQuery({
     queryKey: ['pub-templates'],
@@ -97,7 +98,11 @@ function PublicationsInner() {
         method: 'POST',
         body: JSON.stringify({ vacancyId, board, templateId: templateId || undefined }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['publications'] }),
+    onSuccess: () => {
+      setPubError('');
+      qc.invalidateQueries({ queryKey: ['publications'] });
+    },
+    onError: (e: any) => setPubError(e?.message || 'Не удалось опубликовать'),
   });
 
   const saveTpl = useMutation({

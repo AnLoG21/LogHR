@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res } from '@nestjs/common';
+import {
+  Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res, UploadedFile, UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import type { Response } from 'express';
@@ -480,6 +483,18 @@ export class IntegrationsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.maxBot.send(candidateId, text, user);
+  }
+
+  @ApiBearerAuth()
+  @Post('max-chat/:candidateId/file')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  maxSendFile(
+    @Param('candidateId') candidateId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('text') text: string | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.maxBot.sendFile(candidateId, file, user, text);
   }
 
   @Public()

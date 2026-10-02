@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
@@ -258,8 +259,8 @@ export class CandidatesService {
     return pageResult(items, total, page, pageSize);
   }
 
-  async toggleFlag(id: string, patch: { isFavorite?: boolean; isTracked?: boolean }) {
-    await this.ensureExists(id);
+  async toggleFlag(id: string, patch: { isFavorite?: boolean; isTracked?: boolean }, user: AuthUser) {
+    await this.ensureAccess(id, user);
     return this.prisma.candidate.update({
       where: { id },
       data: {
@@ -291,8 +292,8 @@ export class CandidatesService {
     return { total, unviewed };
   }
 
-  async markViewed(id: string) {
-    await this.ensureExists(id);
+  async markViewed(id: string, user: AuthUser) {
+    await this.ensureAccess(id, user);
     return this.prisma.candidate.update({
       where: { id },
       data: { viewedAt: new Date() },
@@ -300,16 +301,16 @@ export class CandidatesService {
     });
   }
 
-  async removeMany(ids: string[]) {
+  async removeMany(ids: string[], user: AuthUser) {
     const unique = [...new Set((ids || []).filter(Boolean))];
     if (!unique.length) throw new BadRequestException('Не выбраны кандидаты');
     let deleted = 0;
     for (const id of unique) {
       try {
-        await this.remove(id);
+        await this.remove(id, user);
         deleted += 1;
       } catch {
-        /* skip missing */
+        /* skip missing / no access */
       }
     }
     return { ok: true, deleted };
@@ -328,8 +329,9 @@ export class CandidatesService {
       about?: string | null;
       tagIds?: string[];
     },
+    user: AuthUser,
   ) {
-    await this.ensureExists(id);
+    await this.ensureAccess(id, user);
     if (data.tagIds) {
       await this.prisma.candidateTag.deleteMany({ where: { candidateId: id } });
       if (data.tagIds.length) {
@@ -359,7 +361,8 @@ export class CandidatesService {
     });
   }
 
-  async get(id: string) {
+  async get(id: string, user: AuthUser) {
+    await this.ensureAccess(id, user);
     const item = await this.prisma.candidate.findUnique({
       where: { id },
       include: {
@@ -505,7 +508,7 @@ export class CandidatesService {
       await this.maybeLaunchAssessments(candidate.id, stageId);
     }
 
-    return this.get(candidate.id);
+    return this.get(candidate.id, user);
   }
 
   async changeStage(
@@ -515,6 +518,7 @@ export class CandidatesService {
     comment?: string,
     formData?: Record<string, unknown>,
   ) {
+    await this.ensureAccess(id, user);
     const candidate = await this.prisma.candidate.findUnique({
       where: { id },
       include: { vacancy: { include: { funnel: { include: { stages: true } } } } },
@@ -551,7 +555,7 @@ export class CandidatesService {
     });
 
     await this.maybeLaunchAssessments(id, stageId);
-    return this.get(id);
+    return this.get(id, user);
   }
 
   private async maybeLaunchAssessments(candidateId: string, stageId: string) {
@@ -599,9 +603,8 @@ export class CandidatesService {
     }
   }
 
-  async findDuplicatesOf(id: string) {
-    const c = await this.prisma.candidate.findUnique({ where: { id } });
-    if (!c) throw new NotFoundException();
+  async findDuplicatesOf(id: string, user: AuthUser) {
+    const c = await this.ensureAccess(id, user);
     const dups = await this.findDuplicates({
       phone: c.phone || undefined,
       email: c.email || undefined,
@@ -616,6 +619,8 @@ export class CandidatesService {
    */
   async merge(keepId: string, mergeId: string, user: AuthUser) {
     if (keepId === mergeId) throw new BadRequestException('Нельзя слить кандидата с самим собой');
+    await this.ensureAccess(keepId, user);
+    await this.ensureAccess(mergeId, user);
     const [keep, merge] = await Promise.all([
       this.prisma.candidate.findUnique({ where: { id: keepId }, include: { tags: true } }),
       this.prisma.candidate.findUnique({ where: { id: mergeId }, include: { tags: true } }),
@@ -712,19 +717,19 @@ export class CandidatesService {
       });
     });
 
-    return this.get(keepId);
+    return this.get(keepId, user);
   }
 
   async addComment(id: string, body: string, user: AuthUser) {
-    await this.ensureExists(id);
+    await this.ensureAccess(id, user);
     return this.prisma.comment.create({
       data: { candidateId: id, body, authorId: user.id },
       include: { author: { select: { id: true, firstName: true, lastName: true } } },
     });
   }
 
-  async depersonalize(id: string, fields: string[]) {
-    const candidate = await this.ensureExists(id);
+  async depersonalize(id: string, fields: string[], user: AuthUser) {
+    const candidate = await this.ensureAccess(id, user);
     const data: any = { isDepersonalized: true };
     const allowed = ['firstName', 'lastName', 'middleName', 'phone', 'email', 'address', 'about', 'resumeText', 'resumeUrl'];
     for (const f of fields) {
@@ -736,8 +741,8 @@ export class CandidatesService {
   }
 
   /** Полное удаление карточки (тестовые / ошибочно созданные). Задачи отвязываются, файлы удаляются. */
-  async remove(id: string) {
-    await this.ensureExists(id);
+  async remove(id: string, user: AuthUser) {
+    await this.ensureAccess(id, user);
     const atts = await this.prisma.attachment.findMany({ where: { candidateId: id } });
     for (const a of atts) {
       try {
@@ -753,8 +758,8 @@ export class CandidatesService {
     return { ok: true };
   }
 
-  async importResumeText(id: string, text: string, fileName?: string) {
-    await this.ensureExists(id);
+  async importResumeText(id: string, text: string, user: AuthUser, fileName?: string) {
+    await this.ensureAccess(id, user);
     await this.prisma.candidate.update({
       where: { id },
       data: { resumeText: text },
@@ -770,11 +775,11 @@ export class CandidatesService {
         },
       });
     }
-    return this.get(id);
+    return this.get(id, user);
   }
 
-  async addAttachment(id: string, file: Express.Multer.File) {
-    await this.ensureExists(id);
+  async addAttachment(id: string, file: Express.Multer.File, user: AuthUser) {
+    await this.ensureAccess(id, user);
     if (!file?.buffer?.length) throw new BadRequestException('Выберите файл');
     const max = Number(process.env.UPLOAD_MAX_BYTES || 15 * 1024 * 1024);
     if (file.size > max) throw new BadRequestException(`Файл больше ${Math.round(max / 1024 / 1024)} МБ`);
@@ -790,7 +795,8 @@ export class CandidatesService {
     });
   }
 
-  async removeAttachment(id: string, attachmentId: string) {
+  async removeAttachment(id: string, attachmentId: string, user: AuthUser) {
+    await this.ensureAccess(id, user);
     const att = await this.prisma.attachment.findFirst({ where: { id: attachmentId, candidateId: id } });
     if (!att) throw new NotFoundException();
     await this.storage.deleteByUrl(att.url);
@@ -798,17 +804,32 @@ export class CandidatesService {
     return { ok: true };
   }
 
-  async setPdnConsent(id: string) {
-    await this.ensureExists(id);
+  async setPdnConsent(id: string, user: AuthUser) {
+    await this.ensureAccess(id, user);
     return this.prisma.candidate.update({
       where: { id },
       data: { pdnConsentAt: new Date() },
     });
   }
 
-  private async ensureExists(id: string) {
-    const c = await this.prisma.candidate.findUnique({ where: { id } });
-    if (!c) throw new NotFoundException();
+  private visUser(user: AuthUser) {
+    return {
+      id: user.id,
+      role: user.role as any,
+      orgUnitId: (user as any).orgUnitId,
+      visibilityRules: (user as any).visibilityRules,
+    };
+  }
+
+  private async ensureAccess(id: string, user: AuthUser) {
+    const c = await this.prisma.candidate.findFirst({
+      where: { id, AND: [visibilityWhere(this.visUser(user))] },
+    });
+    if (!c) {
+      const exists = await this.prisma.candidate.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw new NotFoundException();
+      throw new ForbiddenException('Нет доступа к кандидату');
+    }
     return c;
   }
 }
@@ -927,31 +948,32 @@ export class CandidatesController {
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER, SystemRole.HR_BP)
   @Post('bulk-delete')
-  bulkDelete(@Body('ids') ids: string[]) {
-    return this.service.removeMany(ids || []);
+  bulkDelete(@Body('ids') ids: string[], @CurrentUser() user: AuthUser) {
+    return this.service.removeMany(ids || [], user);
   }
 
   @Patch(':id/flags')
   flags(
     @Param('id') id: string,
     @Body() body: { isFavorite?: boolean; isTracked?: boolean },
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.service.toggleFlag(id, body);
+    return this.service.toggleFlag(id, body, user);
   }
 
   @Post(':id/viewed')
-  markViewed(@Param('id') id: string) {
-    return this.service.markViewed(id);
+  markViewed(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.markViewed(id, user);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateCandidateDto) {
-    return this.service.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateCandidateDto, @CurrentUser() user: AuthUser) {
+    return this.service.update(id, dto, user);
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.service.get(id);
+  get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.get(id, user);
   }
 
   @Post()
@@ -983,31 +1005,40 @@ export class CandidatesController {
   uploadAttachment(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.service.addAttachment(id, file);
+    return this.service.addAttachment(id, file, user);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)
   @Delete(':id/attachments/:attachmentId')
-  removeAttachment(@Param('id') id: string, @Param('attachmentId') attachmentId: string) {
-    return this.service.removeAttachment(id, attachmentId);
+  removeAttachment(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.removeAttachment(id, attachmentId, user);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.HR_BP)
   @Post(':id/depersonalize')
-  depersonalize(@Param('id') id: string, @Body('fields') fields: string[]) {
-    return this.service.depersonalize(id, fields || ['phone', 'email', 'address']);
+  depersonalize(
+    @Param('id') id: string,
+    @Body('fields') fields: string[],
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.depersonalize(id, fields || ['phone', 'email', 'address'], user);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER, SystemRole.HR_BP)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.remove(id, user);
   }
 
   @Post(':id/pdn-consent')
-  pdnConsent(@Param('id') id: string) {
-    return this.service.setPdnConsent(id);
+  pdnConsent(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.setPdnConsent(id, user);
   }
 
   @Post(':id/resume')
@@ -1015,10 +1046,11 @@ export class CandidatesController {
   async uploadResume(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthUser,
     @Body('text') text?: string,
   ) {
     const content = text || file?.buffer?.toString('utf8') || '';
-    return this.service.importResumeText(id, content, file?.originalname);
+    return this.service.importResumeText(id, content, user, file?.originalname);
   }
 
   @Post('dedupe/check')
@@ -1027,8 +1059,8 @@ export class CandidatesController {
   }
 
   @Get(':id/duplicates')
-  duplicatesOf(@Param('id') id: string) {
-    return this.service.findDuplicatesOf(id);
+  duplicatesOf(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.findDuplicatesOf(id, user);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER)

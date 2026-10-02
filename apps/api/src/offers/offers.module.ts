@@ -2,7 +2,7 @@ import {
   BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { OfferStatus, SystemRole } from '@prisma/client';
+import { OfferStatus, Prisma, SystemRole } from '@prisma/client';
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 import PDFDocument from 'pdfkit';
 import { OFFER_STATUS_LABELS, ruLabel } from '@skillaz/shared';
@@ -10,14 +10,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
+import { visibilityWhere } from '../common/visibility';
 
 @Injectable()
 export class OffersService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { page?: number; pageSize?: number; status?: OfferStatus }) {
+  async list(query: { page?: number; pageSize?: number; status?: OfferStatus }, user: AuthUser) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
-    const where = query.status ? { status: query.status } : {};
+    const candVis = visibilityWhere({
+      id: user.id,
+      role: user.role as any,
+      orgUnitId: (user as any).orgUnitId,
+      visibilityRules: (user as any).visibilityRules,
+    });
+    const where: Prisma.OfferWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      candidate: { isDepersonalized: false, AND: [candVis] },
+    };
     const [items, total] = await Promise.all([
       this.prisma.offer.findMany({
         where,
@@ -146,8 +156,13 @@ export class OffersController {
 
   @ApiBearerAuth()
   @Get()
-  list(@Query('page') page?: number, @Query('pageSize') pageSize?: number, @Query('status') status?: OfferStatus) {
-    return this.service.list({ page, pageSize, status });
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('page') page?: number,
+    @Query('pageSize') pageSize?: number,
+    @Query('status') status?: OfferStatus,
+  ) {
+    return this.service.list({ page, pageSize, status }, user);
   }
 
   @ApiBearerAuth()

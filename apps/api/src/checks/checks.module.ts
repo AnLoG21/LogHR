@@ -2,22 +2,33 @@ import {
   Body, Controller, Get, Injectable, Module, NotFoundException, Param, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CheckStatus, CheckType, SystemRole } from '@prisma/client';
+import { CheckStatus, CheckType, Prisma, SystemRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
+import { visibilityWhere } from '../common/visibility';
 
 @Injectable()
 export class ChecksService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { page?: number; pageSize?: number; type?: CheckType; status?: CheckStatus }) {
+  async list(
+    query: { page?: number; pageSize?: number; type?: CheckType; status?: CheckStatus },
+    user: AuthUser,
+  ) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
-    const where = {
+    const candVis = visibilityWhere({
+      id: user.id,
+      role: user.role as any,
+      orgUnitId: (user as any).orgUnitId,
+      visibilityRules: (user as any).visibilityRules,
+    });
+    const where: Prisma.CheckWhereInput = {
       ...(query.type ? { type: query.type } : {}),
       ...(query.status ? { status: query.status } : {}),
+      candidate: { isDepersonalized: false, AND: [candVis] },
     };
     const [items, total] = await Promise.all([
       this.prisma.check.findMany({
@@ -119,12 +130,13 @@ export class ChecksController {
   @ApiBearerAuth()
   @Get()
   list(
+    @CurrentUser() user: AuthUser,
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
     @Query('type') type?: CheckType,
     @Query('status') status?: CheckStatus,
   ) {
-    return this.service.list({ page, pageSize, type, status });
+    return this.service.list({ page, pageSize, type, status }, user);
   }
 
   @ApiBearerAuth()

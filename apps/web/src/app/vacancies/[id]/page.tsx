@@ -12,6 +12,7 @@ export default function VacancyDetailPage() {
   const qc = useQueryClient();
   const [citiesInput, setCitiesInput] = useState('');
   const [cityFilter, setCityFilter] = useState('');
+  const [pubError, setPubError] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [edit, setEdit] = useState({ title: '', description: '', city: '', funnelId: '', orgUnitId: '', candidateProfileId: '' });
   const { data: v } = useQuery({
@@ -25,7 +26,11 @@ export default function VacancyDetailPage() {
   const publish = useMutation({
     mutationFn: (board: string) =>
       api('/publications', { method: 'POST', body: JSON.stringify({ vacancyId: id, board }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['vacancy', id] }),
+    onSuccess: () => {
+      setPubError('');
+      qc.invalidateQueries({ queryKey: ['vacancy', id] });
+    },
+    onError: (e: any) => setPubError(e?.message || 'Не удалось опубликовать'),
   });
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -87,11 +92,12 @@ export default function VacancyDetailPage() {
           <Button variant="ghost" onClick={() => patch.mutate({ isActive: !v.isActive })} disabled={patch.isPending}>
             {v.isActive ? 'В архив' : 'Вернуть из архива'}
           </Button>
-          <Button variant="ghost" onClick={() => publish.mutate('HH')} disabled={!v.isActive}>Опубликовать на HeadHunter</Button>
-          <Button variant="ghost" onClick={() => publish.mutate('AVITO')} disabled={!v.isActive}>Опубликовать на Avito</Button>
+          <Button variant="ghost" onClick={() => { setPubError(''); publish.mutate('HH'); }} disabled={!v.isActive || publish.isPending}>Опубликовать на HeadHunter</Button>
+          <Button variant="ghost" onClick={() => { setPubError(''); publish.mutate('AVITO'); }} disabled={!v.isActive || publish.isPending}>Опубликовать на Avito</Button>
         </>
       }
     >
+      {pubError ? <div className="mb-3"><ErrorText error={pubError} /></div> : null}
       {isChild ? (
         <Card className="p-4 mb-4 text-sm flex flex-wrap items-center justify-between gap-2">
           <div>
