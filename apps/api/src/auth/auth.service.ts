@@ -73,7 +73,7 @@ export class AuthService {
     return this.publicUser(user);
   }
 
-  async updateProfile(userId: string, data: { firstName?: string; lastName?: string; middleName?: string; phone?: string }) {
+  async updateProfile(userId: string, data: { firstName?: string; lastName?: string; middleName?: string; phone?: string; mangoExtension?: string }) {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -81,6 +81,9 @@ export class AuthService {
         lastName: data.lastName,
         middleName: data.middleName,
         phone: data.phone,
+        ...(data.mangoExtension !== undefined
+          ? { mangoExtension: data.mangoExtension?.trim() || null }
+          : {}),
       },
       include: { orgUnit: true, visibilityProfile: true },
     });
@@ -118,6 +121,7 @@ export class AuthService {
       lastName: user.lastName,
       middleName: user.middleName,
       phone: user.phone,
+      mangoExtension: user.mangoExtension ?? null,
       role: user.role,
       orgUnitId: user.orgUnitId,
       orgUnit: user.orgUnit ?? undefined,

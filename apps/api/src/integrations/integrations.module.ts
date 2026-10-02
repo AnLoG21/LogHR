@@ -3,11 +3,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
-import { Public, Roles } from '../common/guards';
+import { AuthUser, Public, Roles } from '../common/guards';
+import { CurrentUser } from '../common/current-user.decorator';
 import { aiProviders } from '../ai/ai.module';
 import { HhAuthService } from './hh-auth.service';
-import { hhUserAgent, resolveHhToken } from './hh-token';
+import { hhUserAgent, resolveHhToken, withHhUser } from './hh-token';
 import { MaxBotService } from './max-bot.service';
+import { MangoService } from './mango.service';
 
 @Injectable()
 export class IntegrationsService {
@@ -15,6 +17,7 @@ export class IntegrationsService {
     private prisma: PrismaService,
     private hhAuth: HhAuthService,
     private maxBot: MaxBotService,
+    private mango: MangoService,
   ) {}
 
   async status() {
@@ -40,7 +43,7 @@ export class IntegrationsService {
       ZARPLATA: !!process.env.ZARPLATA_TOKEN,
       SMTP: !!process.env.SMTP_HOST,
       SMS: !!process.env.SMS_API_KEY,
-      TELEPHONY: !!process.env.TELEPHONY_API_KEY,
+      TELEPHONY: this.mango.configured() || !!process.env.TELEPHONY_API_KEY,
       PROACTION: !!process.env.PROACTION_WEBHOOK_SECRET,
       REDIS: redisOk,
       S3: process.env.STORAGE_MODE === 's3' && !!process.env.S3_ENDPOINT,
@@ -56,6 +59,7 @@ export class IntegrationsService {
       if (r.code === 'HH') note = hhStatus.note;
       if (r.code === 'HH_CHAT') note = live ? 'доступен через HH' : 'нужно подключить HeadHunter';
       if (r.code === 'MAX') note = this.maxBot.status().note;
+      if (r.code === 'TELEPHONY') note = this.mango.status().note;
       if (r.code === 'AI' && live) note = 'подключено';
       return {
         ...r,
@@ -64,6 +68,7 @@ export class IntegrationsService {
         note,
         ...(r.code === 'HH' ? { hh: hhStatus } : {}),
         ...(r.code === 'MAX' ? { max: this.maxBot.status() } : {}),
+        ...(r.code === 'TELEPHONY' ? { mango: this.mango.status() } : {}),
       };
     });
   }
@@ -113,29 +118,32 @@ export class IntegrationsService {
     return { ok: true, result };
   }
 
-  clickToCall(phone: string) {
-    const provider = process.env.TELEPHONY_PROVIDER || 'mock';
+  clickToCall(phone: string, user: AuthUser) {
+    if (this.mango.configured() || (process.env.TELEPHONY_PROVIDER || '').toLowerCase() === 'mango') {
+      return this.mango.clickToCall(phone, user);
+    }
     const apiKey = process.env.TELEPHONY_API_KEY;
     if (!apiKey) {
       return {
         ok: false,
         configured: false,
-        message: 'Телефония не настроена (TELEPHONY_API_KEY)',
+        message: 'Телефония не настроена',
         deeplink: `tel:${phone.replace(/\D/g, '')}`,
       };
     }
     return {
       ok: true,
       configured: true,
-      provider,
-      callId: `${provider}-${Date.now()}`,
+      provider: process.env.TELEPHONY_PROVIDER || 'mock',
+      callId: `tel-${Date.now()}`,
       deeplink: `tel:${phone.replace(/\D/g, '')}`,
     };
   }
 
-  /** HH Chat: uses OAuth token or HH_ACCESS_TOKEN / HH_CHAT_TOKEN */
-  async hhChat(candidateId: string) {
-    const token = await resolveHhToken();
+  /** HH Chat: personal token of current user preferred */
+  async hhChat(candidateId: string, userId?: string) {
+    return withHhUser(userId, async () => {
+    const token = await resolveHhToken(userId);
     if (!token) {
       return {
         configured: false,
@@ -221,10 +229,11 @@ export class IntegrationsService {
         error: 'network',
       };
     }
+    });
   }
 
-  async sendHhChat(candidateId: string, text: string) {
-    const token = await resolveHhToken();
+  async sendHhChat(candidateId: string, text: string, userId?: string) {
+    const token = await resolveHhToken(userId);
     if (!token) {
       return { ok: false, configured: false, note: 'Чат HeadHunter не подключён' };
     }
@@ -309,6 +318,7 @@ export class IntegrationsController {
     private service: IntegrationsService,
     private hhAuth: HhAuthService,
     private maxBot: MaxBotService,
+    private mango: MangoService,
   ) {}
 
   @ApiBearerAuth()
@@ -318,18 +328,25 @@ export class IntegrationsController {
     return this.service.status();
   }
 
+  /** Company HH (admin) */
   @ApiBearerAuth()
-  @Roles(SystemRole.ADMIN)
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
   @Get('hh/status')
   hhStatus() {
-    return this.hhAuth.status();
+    return this.hhAuth.companyStatus();
+  }
+
+  /** Personal HH for current user */
+  @ApiBearerAuth()
+  @Get('hh/me')
+  hhMe(@CurrentUser() user: AuthUser) {
+    return this.hhAuth.personalStatus(user.id);
   }
 
   @ApiBearerAuth()
-  @Roles(SystemRole.ADMIN)
   @Get('hh/authorize')
-  async hhAuthorize() {
-    return this.hhAuth.authorizeUrl();
+  async hhAuthorize(@CurrentUser() user: AuthUser, @Query('mode') mode?: string) {
+    return this.hhAuth.authorizeUrl(user, mode === 'company' ? 'company' : 'personal');
   }
 
   @Public()
@@ -342,21 +359,74 @@ export class IntegrationsController {
   ) {
     const web = this.hhAuth.publicBaseUrl();
     if (error) {
-      return res.redirect(`${web}/admin?hh=error&msg=${encodeURIComponent(error)}`);
+      return res.redirect(`${web}/profile?hh=error&msg=${encodeURIComponent(error)}`);
     }
     try {
-      await this.hhAuth.handleCallback(code, state);
-      return res.redirect(`${web}/admin?hh=connected`);
+      const result = await this.hhAuth.handleCallback(code, state);
+      return res.redirect(`${web}${result.redirectPath || '/profile?hh=connected'}`);
     } catch (e: any) {
-      return res.redirect(`${web}/admin?hh=error&msg=${encodeURIComponent(e?.message || 'Ошибка HH')}`);
+      return res.redirect(`${web}/profile?hh=error&msg=${encodeURIComponent(e?.message || 'Ошибка HH')}`);
     }
   }
 
   @ApiBearerAuth()
-  @Roles(SystemRole.ADMIN)
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
   @Post('hh/disconnect')
   hhDisconnect() {
-    return this.hhAuth.disconnect();
+    return this.hhAuth.disconnectCompany();
+  }
+
+  @ApiBearerAuth()
+  @Post('hh/me/disconnect')
+  hhMeDisconnect(@CurrentUser() user: AuthUser) {
+    return this.hhAuth.disconnectPersonal(user.id);
+  }
+
+  /** Lead / admin: team & their HH / Mango */
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)
+  @Get('team')
+  team() {
+    return this.hhAuth.teamOverview();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)
+  @Get('team/:userId')
+  teamMember(@Param('userId') userId: string) {
+    return this.hhAuth.teamMemberDetail(userId);
+  }
+
+  @ApiBearerAuth()
+  @Get('mango/status')
+  mangoStatus() {
+    return this.mango.status();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
+  @Get('mango/calls')
+  mangoCalls(@Query('limit') limit?: string) {
+    return this.mango.recentCalls(limit ? Number(limit) : 30);
+  }
+
+  @Public()
+  @Post('mango/events')
+  mangoEvents(@Body() body: any, @Headers('x-sign') sign?: string) {
+    return this.mango.handleEvent(body, sign || body?.sign);
+  }
+
+  /** Mango дописывает к URL: /events/call, /events/summary, /events/recording … */
+  @Public()
+  @Post('mango/events/:kind')
+  mangoEventsKind(@Body() body: any, @Headers('x-sign') sign?: string) {
+    return this.mango.handleEvent(body, sign || body?.sign);
+  }
+
+  @Public()
+  @Post('mango/result/:kind')
+  mangoResult(@Body() body: any, @Headers('x-sign') sign?: string) {
+    return this.mango.handleEvent(body, sign || body?.sign);
   }
 
   @ApiBearerAuth()
@@ -398,20 +468,20 @@ export class IntegrationsController {
 
   @ApiBearerAuth()
   @Post('telephony/call')
-  call(@Body('phone') phone: string) {
-    return this.service.clickToCall(phone);
+  call(@Body('phone') phone: string, @CurrentUser() user: AuthUser) {
+    return this.service.clickToCall(phone, user);
   }
 
   @ApiBearerAuth()
   @Get('hh-chat/:candidateId')
-  hhChat(@Param('candidateId') candidateId: string) {
-    return this.service.hhChat(candidateId);
+  hhChat(@Param('candidateId') candidateId: string, @CurrentUser() user: AuthUser) {
+    return this.service.hhChat(candidateId, user.id);
   }
 
   @ApiBearerAuth()
   @Post('hh-chat/:candidateId')
-  sendHhChat(@Param('candidateId') candidateId: string, @Body('text') text: string) {
-    return this.service.sendHhChat(candidateId, text);
+  sendHhChat(@Param('candidateId') candidateId: string, @Body('text') text: string, @CurrentUser() user: AuthUser) {
+    return this.service.sendHhChat(candidateId, text, user.id);
   }
 
   @ApiBearerAuth()
@@ -423,7 +493,7 @@ export class IntegrationsController {
 
 @Module({
   controllers: [IntegrationsController],
-  providers: [IntegrationsService, HhAuthService, MaxBotService],
-  exports: [IntegrationsService, HhAuthService, MaxBotService],
+  providers: [IntegrationsService, HhAuthService, MaxBotService, MangoService],
+  exports: [IntegrationsService, HhAuthService, MaxBotService, MangoService],
 })
 export class IntegrationsModule {}

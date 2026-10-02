@@ -6,6 +6,9 @@ import { JobBoard, Prisma, SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public, Roles } from '../common/guards';
 import { getJobBoardAdapter } from '../job-boards/adapters';
+import { CurrentUser } from '../common/current-user.decorator';
+import type { AuthUser } from '../common/guards';
+import { withHhUser } from '../integrations/hh-token';
 
 @Injectable()
 export class PublicationsService {
@@ -314,8 +317,11 @@ export class PublicationsController {
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Post()
-  publish(@Body() dto: { vacancyId: string; board: JobBoard; accountId?: string; templateId?: string }) {
-    return this.service.publish(dto);
+  publish(
+    @Body() dto: { vacancyId: string; board: JobBoard; accountId?: string; templateId?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return withHhUser(user?.id, () => this.service.publish(dto));
   }
 }
 

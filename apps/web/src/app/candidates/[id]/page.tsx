@@ -160,9 +160,15 @@ function CandidateDetailInner() {
   const call = useMutation({
     mutationFn: () => api('/integrations/telephony/call', { method: 'POST', body: JSON.stringify({ phone: c.phone }) }),
     onSuccess: (res: any) => {
-      if (res?.deeplink) window.open(res.deeplink, '_self');
+      // Без Mango — открываем обычный набор номера на устройстве
+      if (!res?.ok && res?.configured === false && res?.deeplink) window.open(res.deeplink, '_self');
     },
   });
+  const callMsg: { ok: boolean; text: string } | null = call.isError
+    ? { ok: false, text: (call.error as Error)?.message || 'Не удалось позвонить' }
+    : call.data && (call.data as any).configured !== false && (call.data as any).message
+      ? { ok: !!(call.data as any).ok, text: (call.data as any).message }
+      : null;
 
   const insights = useQuery({
     queryKey: ['candidate-ai', id],
@@ -288,7 +294,14 @@ function CandidateDetailInner() {
               </button>
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
               <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
-              <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone}>Позвонить</Button>
+              <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone || call.isPending}>
+                {call.isPending ? 'Соединяем…' : 'Позвонить'}
+              </Button>
+              {callMsg ? (
+                <span className={`self-center text-xs ${callMsg.ok ? 'text-[var(--sk-text-success)]' : 'text-[var(--sk-danger)]'}`}>
+                  {callMsg.text}
+                </span>
+              ) : null}
               <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
                 <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
               </Button>

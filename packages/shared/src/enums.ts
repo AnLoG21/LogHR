@@ -321,6 +321,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     label: 'Настройки',
     items: [
       { href: '/admin', label: 'Пользователи и роли', icon: 'settings', roles: [SystemRole.ADMIN] },
+      { href: '/team', label: 'Моя команда', icon: 'users', roles: [SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP] },
       { href: '/funnels', label: 'Воронки', icon: 'flow', roles: [SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD] },
       { href: '/visibility', label: 'Профили видимости', icon: 'eye', roles: [SystemRole.ADMIN] },
       { href: '/custom-fields', label: 'Дополнительные поля', icon: 'list', roles: [SystemRole.ADMIN] },

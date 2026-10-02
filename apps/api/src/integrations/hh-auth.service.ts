@@ -1,15 +1,17 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthUser } from '../common/guards';
 import { hhUserAgent, setHhTokenProvider } from './hh-token';
 
-type HhCreds = {
+export type HhCreds = {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: string;
@@ -19,15 +21,22 @@ type HhCreds = {
   connectedAt?: string;
 };
 
+type OAuthMeta = {
+  oauthState?: string;
+  oauthStateAt?: string;
+  mode?: 'company' | 'personal';
+  userId?: string;
+};
+
 @Injectable()
 export class HhAuthService implements OnModuleInit {
   private readonly logger = new Logger(HhAuthService.name);
-  private refreshLock: Promise<string | null> | null = null;
+  private refreshLocks = new Map<string, Promise<string | null>>();
 
   constructor(private prisma: PrismaService) {}
 
   onModuleInit() {
-    setHhTokenProvider(() => this.getAccessToken());
+    setHhTokenProvider((userId) => this.getAccessToken(userId));
   }
 
   publicBaseUrl() {
@@ -42,21 +51,27 @@ export class HhAuthService implements OnModuleInit {
     return !!(process.env.HH_CLIENT_ID && process.env.HH_CLIENT_SECRET);
   }
 
-  private async getAccount() {
+  private credsOf(raw: unknown): HhCreds {
+    if (!raw || typeof raw !== 'object') return {};
+    return raw as HhCreds;
+  }
+
+  private async getCompanyAccount() {
     return this.prisma.jobBoardAccount.findFirst({
       where: { board: 'HH', isActive: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  private credsOf(account: { credentials: unknown } | null): HhCreds {
-    if (!account?.credentials || typeof account.credentials !== 'object') return {};
-    return account.credentials as HhCreds;
+  private async getPersonal(userId: string) {
+    return this.prisma.userIntegration.findUnique({
+      where: { userId_provider: { userId, provider: 'HH' } },
+    });
   }
 
-  async status() {
-    const account = await this.getAccount();
-    const creds = this.credsOf(account);
+  async companyStatus() {
+    const account = await this.getCompanyAccount();
+    const creds = this.credsOf(account?.credentials);
     const oauth = !!creds.accessToken;
     const env = !!process.env.HH_ACCESS_TOKEN;
     return {
@@ -64,6 +79,7 @@ export class HhAuthService implements OnModuleInit {
       connected: oauth || env,
       viaOAuth: oauth,
       viaEnv: env && !oauth,
+      scope: 'company' as const,
       expiresAt: creds.expiresAt || null,
       manager: creds.manager || null,
       employer: creds.employer || null,
@@ -73,22 +89,57 @@ export class HhAuthService implements OnModuleInit {
       note: !this.clientConfigured()
         ? 'Укажите HH_CLIENT_ID и HH_CLIENT_SECRET в настройках сервера'
         : oauth
-          ? 'HeadHunter подключён'
+          ? 'Корпоративный HeadHunter подключён (отклики и поиск для всей компании)'
           : env
             ? 'Используется токен из настроек сервера'
-            : 'Нажмите «Подключить HeadHunter»',
+            : 'Администратор может подключить общий аккаунт компании',
     };
   }
 
-  async authorizeUrl() {
+  /** @deprecated alias for companyStatus — admin UI */
+  status() {
+    return this.companyStatus();
+  }
+
+  async personalStatus(userId: string) {
+    const row = await this.getPersonal(userId);
+    const creds = this.credsOf(row?.credentials);
+    const connected = !!(row?.isActive && creds.accessToken);
+    return {
+      clientConfigured: this.clientConfigured(),
+      connected,
+      scope: 'personal' as const,
+      expiresAt: creds.expiresAt || null,
+      manager: creds.manager || null,
+      employer: creds.employer || null,
+      connectedAt: creds.connectedAt || row?.connectedAt?.toISOString() || null,
+      redirectUri: this.redirectUri(),
+      note: !this.clientConfigured()
+        ? 'Администратор ещё не задал HH_CLIENT_ID / HH_CLIENT_SECRET'
+        : connected
+          ? 'Ваш аккаунт менеджера HH подключён — публикации и чат идут от вашего имени'
+          : 'Подключите свой менеджерский аккаунт HH, чтобы публиковать и писать кандидатам от себя',
+    };
+  }
+
+  async authorizeUrl(user: AuthUser, mode: 'company' | 'personal' = 'personal') {
     if (!this.clientConfigured()) {
       throw new BadRequestException('Не заданы HH_CLIENT_ID / HH_CLIENT_SECRET');
     }
+    if (mode === 'company' && user.role !== SystemRole.ADMIN && user.role !== SystemRole.RECRUITMENT_LEAD) {
+      throw new ForbiddenException('Корпоративный аккаунт может подключать только руководитель');
+    }
     const state = randomBytes(24).toString('hex');
+    const meta: OAuthMeta = {
+      oauthState: state,
+      oauthStateAt: new Date().toISOString(),
+      mode,
+      userId: user.id,
+    };
     await this.prisma.integrationStatus.upsert({
       where: { code: 'HH' },
-      update: { meta: { oauthState: state, oauthStateAt: new Date().toISOString() } as Prisma.InputJsonValue, configured: false },
-      create: { code: 'HH', name: 'HeadHunter', meta: { oauthState: state } as Prisma.InputJsonValue },
+      update: { meta: meta as Prisma.InputJsonValue },
+      create: { code: 'HH', name: 'HeadHunter', meta: meta as Prisma.InputJsonValue },
     });
     const params = new URLSearchParams({
       response_type: 'code',
@@ -96,17 +147,31 @@ export class HhAuthService implements OnModuleInit {
       redirect_uri: this.redirectUri(),
       state,
     });
-    return { url: `https://hh.ru/oauth/authorize?${params}`, state, redirectUri: this.redirectUri() };
+    return { url: `https://hh.ru/oauth/authorize?${params}`, state, redirectUri: this.redirectUri(), mode };
   }
 
   async handleCallback(code?: string, state?: string) {
     if (!code) throw new BadRequestException('Нет кода авторизации');
     const row = await this.prisma.integrationStatus.findUnique({ where: { code: 'HH' } });
-    const meta = (row?.meta || {}) as any;
+    const meta = (row?.meta || {}) as OAuthMeta;
     if (!state || !meta.oauthState || state !== meta.oauthState) {
       throw new BadRequestException('Неверный state — начните подключение заново');
     }
+    const mode = meta.mode || 'company';
+    const userId = meta.userId;
 
+    const credentials = await this.exchangeCode(code);
+    if (mode === 'personal') {
+      if (!userId) throw new BadRequestException('Неизвестный пользователь для личного подключения');
+      await this.savePersonal(userId, credentials);
+      return { ok: true, mode, employer: credentials.employer, manager: credentials.manager, redirectPath: '/profile?hh=connected' };
+    }
+
+    await this.saveCompany(credentials);
+    return { ok: true, mode: 'company', employer: credentials.employer, manager: credentials.manager, redirectPath: '/admin?hh=connected' };
+  }
+
+  private async exchangeCode(code: string): Promise<HhCreds> {
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: process.env.HH_CLIENT_ID!,
@@ -126,9 +191,8 @@ export class HhAuthService implements OnModuleInit {
     }
     const tokenData: any = await tokenRes.json();
     const expiresAt = new Date(Date.now() + Number(tokenData.expires_in || 1209600) * 1000).toISOString();
-
     const me = await this.fetchMe(tokenData.access_token);
-    const manager = me?.is_employer || me?.employer
+    const manager = me
       ? {
           id: String(me.id || ''),
           email: me.email || undefined,
@@ -139,8 +203,7 @@ export class HhAuthService implements OnModuleInit {
     const employer = me?.employer
       ? { id: String(me.employer.id || ''), name: me.employer.name || undefined }
       : undefined;
-
-    const credentials: HhCreds = {
+    return {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt,
@@ -149,33 +212,26 @@ export class HhAuthService implements OnModuleInit {
       employer,
       connectedAt: new Date().toISOString(),
     };
+  }
 
-    const existing = await this.getAccount();
+  private async saveCompany(credentials: HhCreds) {
+    const existing = await this.getCompanyAccount();
+    const name = credentials.employer?.name ? `HH · ${credentials.employer.name}` : 'HeadHunter (компания)';
     if (existing) {
       await this.prisma.jobBoardAccount.update({
         where: { id: existing.id },
-        data: {
-          name: employer?.name ? `HH · ${employer.name}` : 'HeadHunter',
-          credentials: credentials as Prisma.InputJsonValue,
-          isActive: true,
-        },
+        data: { name, credentials: credentials as Prisma.InputJsonValue, isActive: true },
       });
     } else {
       await this.prisma.jobBoardAccount.create({
-        data: {
-          board: 'HH',
-          name: employer?.name ? `HH · ${employer.name}` : 'HeadHunter',
-          credentials: credentials as Prisma.InputJsonValue,
-          isActive: true,
-        },
+        data: { board: 'HH', name, credentials: credentials as Prisma.InputJsonValue, isActive: true },
       });
     }
-
     await this.prisma.integrationStatus.upsert({
       where: { code: 'HH' },
       update: {
         configured: true,
-        meta: { connectedAt: credentials.connectedAt, employer, manager } as Prisma.InputJsonValue,
+        meta: { connectedAt: credentials.connectedAt, employer: credentials.employer, manager: credentials.manager, scope: 'company' } as Prisma.InputJsonValue,
       },
       create: { code: 'HH', name: 'HeadHunter', configured: true },
     });
@@ -184,12 +240,33 @@ export class HhAuthService implements OnModuleInit {
       update: { configured: true },
       create: { code: 'HH_CHAT', name: 'Чат HeadHunter', configured: true },
     });
-
-    return { ok: true, employer, manager };
   }
 
-  async disconnect() {
-    const account = await this.getAccount();
+  private async savePersonal(userId: string, credentials: HhCreds) {
+    const label = [credentials.manager?.lastName, credentials.manager?.firstName].filter(Boolean).join(' ')
+      || credentials.manager?.email
+      || 'Менеджер HH';
+    await this.prisma.userIntegration.upsert({
+      where: { userId_provider: { userId, provider: 'HH' } },
+      update: {
+        credentials: credentials as Prisma.InputJsonValue,
+        isActive: true,
+        label,
+        connectedAt: new Date(),
+      },
+      create: {
+        userId,
+        provider: 'HH',
+        credentials: credentials as Prisma.InputJsonValue,
+        isActive: true,
+        label,
+        connectedAt: new Date(),
+      },
+    });
+  }
+
+  async disconnectCompany() {
+    const account = await this.getCompanyAccount();
     if (account) {
       await this.prisma.jobBoardAccount.update({
         where: { id: account.id },
@@ -203,32 +280,76 @@ export class HhAuthService implements OnModuleInit {
     return { ok: true };
   }
 
-  async getAccessToken(): Promise<string | null> {
-    const account = await this.getAccount();
-    const creds = this.credsOf(account);
-    if (creds.accessToken) {
-      const expiresAt = creds.expiresAt ? new Date(creds.expiresAt).getTime() : 0;
-      // Refresh ~2 minutes before expiry
-      if (expiresAt && expiresAt - Date.now() < 120_000) {
-        if (creds.refreshToken) {
-          return this.refreshLocked(creds.refreshToken);
-        }
+  async disconnectPersonal(userId: string) {
+    await this.prisma.userIntegration.updateMany({
+      where: { userId, provider: 'HH' },
+      data: { isActive: false, credentials: {} },
+    });
+    return { ok: true };
+  }
+
+  /** Personal token preferred for acting user; company/env as fallback (sync, search). */
+  async getAccessToken(userId?: string): Promise<string | null> {
+    if (userId) {
+      const personal = await this.getPersonal(userId);
+      if (personal?.isActive) {
+        const creds = this.credsOf(personal.credentials);
+        const token = await this.ensureFresh(creds, `user:${userId}`, async (next) => {
+          await this.prisma.userIntegration.update({
+            where: { id: personal.id },
+            data: { credentials: next as Prisma.InputJsonValue },
+          });
+        });
+        if (token) return token;
       }
-      return creds.accessToken;
     }
+
+    const account = await this.getCompanyAccount();
+    if (account) {
+      const creds = this.credsOf(account.credentials);
+      const token = await this.ensureFresh(creds, `company:${account.id}`, async (next) => {
+        await this.prisma.jobBoardAccount.update({
+          where: { id: account.id },
+          data: { credentials: next as Prisma.InputJsonValue },
+        });
+      });
+      if (token) return token;
+    }
+
     return process.env.HH_ACCESS_TOKEN || process.env.HH_CHAT_TOKEN || null;
   }
 
-  private refreshLocked(refreshToken: string) {
-    if (!this.refreshLock) {
-      this.refreshLock = this.refresh(refreshToken).finally(() => {
-        this.refreshLock = null;
-      });
+  private async ensureFresh(
+    creds: HhCreds,
+    lockKey: string,
+    save: (next: HhCreds) => Promise<void>,
+  ): Promise<string | null> {
+    if (!creds.accessToken) return null;
+    const expiresAt = creds.expiresAt ? new Date(creds.expiresAt).getTime() : 0;
+    if (expiresAt && expiresAt - Date.now() < 120_000 && creds.refreshToken) {
+      return this.refreshLocked(lockKey, creds.refreshToken, creds, save);
     }
-    return this.refreshLock;
+    return creds.accessToken;
   }
 
-  private async refresh(refreshToken: string): Promise<string | null> {
+  private refreshLocked(
+    lockKey: string,
+    refreshToken: string,
+    prev: HhCreds,
+    save: (next: HhCreds) => Promise<void>,
+  ) {
+    const existing = this.refreshLocks.get(lockKey);
+    if (existing) return existing;
+    const p = this.refresh(refreshToken, prev, save).finally(() => this.refreshLocks.delete(lockKey));
+    this.refreshLocks.set(lockKey, p);
+    return p;
+  }
+
+  private async refresh(
+    refreshToken: string,
+    prev: HhCreds,
+    save: (next: HhCreds) => Promise<void>,
+  ): Promise<string | null> {
     if (!this.clientConfigured()) return process.env.HH_ACCESS_TOKEN || null;
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -246,22 +367,15 @@ export class HhAuthService implements OnModuleInit {
       return null;
     }
     const data: any = await res.json();
-    const account = await this.getAccount();
-    const prev = this.credsOf(account);
-    const credentials: HhCreds = {
+    const next: HhCreds = {
       ...prev,
       accessToken: data.access_token,
       refreshToken: data.refresh_token || refreshToken,
       expiresAt: new Date(Date.now() + Number(data.expires_in || 1209600) * 1000).toISOString(),
       tokenType: data.token_type || 'bearer',
     };
-    if (account) {
-      await this.prisma.jobBoardAccount.update({
-        where: { id: account.id },
-        data: { credentials: credentials as Prisma.InputJsonValue },
-      });
-    }
-    return credentials.accessToken || null;
+    await save(next);
+    return next.accessToken || null;
   }
 
   private async fetchMe(accessToken: string) {
@@ -280,7 +394,111 @@ export class HhAuthService implements OnModuleInit {
     }
   }
 
-  /** Stable hash helper (unused but handy for state binding). */
+  /** Team overview for lead/admin: who connected HH, mango, workload. */
+  async teamOverview() {
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        role: true,
+        phone: true,
+        mangoExtension: true,
+        orgUnit: { select: { id: true, name: true } },
+        integrations: { where: { provider: 'HH', isActive: true }, take: 1 },
+        _count: {
+          select: {
+            assignedCandidates: true,
+            hiringRequestsRecruited: true,
+            assignedTasks: { where: { status: 'OPEN' } },
+          },
+        },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+
+    return users.map((u) => {
+      const hh = u.integrations[0];
+      const creds = this.credsOf(hh?.credentials);
+      return {
+        id: u.id,
+        email: u.email,
+        name: [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' '),
+        role: u.role,
+        phone: u.phone,
+        orgUnit: u.orgUnit,
+        mangoExtension: u.mangoExtension,
+        hh: {
+          connected: !!(hh && creds.accessToken),
+          manager: creds.manager || null,
+          employer: creds.employer || null,
+          connectedAt: creds.connectedAt || hh?.connectedAt?.toISOString() || null,
+          label: hh?.label || null,
+        },
+        stats: {
+          candidates: u._count.assignedCandidates,
+          requests: u._count.hiringRequestsRecruited,
+          openTasks: u._count.assignedTasks,
+        },
+      };
+    });
+  }
+
+  async teamMemberDetail(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        role: true,
+        phone: true,
+        mangoExtension: true,
+        orgUnit: { select: { id: true, name: true } },
+        integrations: { where: { provider: 'HH' }, take: 1 },
+      },
+    });
+    if (!user) throw new BadRequestException('Сотрудник не найден');
+    const candidates = await this.prisma.candidate.findMany({
+      where: { assigneeId: id, isDepersonalized: false },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        stage: { select: { name: true } },
+        vacancy: { select: { id: true, title: true } },
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+    const creds = this.credsOf(user.integrations[0]?.credentials);
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' '),
+        role: user.role,
+        phone: user.phone,
+        mangoExtension: user.mangoExtension,
+        orgUnit: user.orgUnit,
+        hh: {
+          connected: !!(user.integrations[0]?.isActive && creds.accessToken),
+          manager: creds.manager || null,
+          employer: creds.employer || null,
+          connectedAt: creds.connectedAt || null,
+        },
+      },
+      candidates,
+    };
+  }
+
   hash(s: string) {
     return createHash('sha256').update(s).digest('hex').slice(0, 16);
   }

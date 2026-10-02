@@ -4,6 +4,9 @@ import { JobBoard, SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public, Roles } from '../common/guards';
 import { getHhAdapter, getJobBoardAdapter, JobBoardSearchInput } from './adapters';
+import { CurrentUser } from '../common/current-user.decorator';
+import type { AuthUser } from '../common/guards';
+import { withHhUser } from '../integrations/hh-token';
 
 export * from './adapters';
 
@@ -285,8 +288,8 @@ export class JobBoardsController {
   }
 
   @Get('hh-status')
-  hhStatus() {
-    return this.service.hhStatus();
+  hhStatus(@CurrentUser() user: AuthUser) {
+    return withHhUser(user?.id, () => this.service.hhStatus());
   }
 
   @Roles(SystemRole.ADMIN)
@@ -296,9 +299,9 @@ export class JobBoardsController {
   }
 
   @Post('search')
-  search(@Body() dto: { board: JobBoard } & JobBoardSearchInput) {
+  search(@Body() dto: { board: JobBoard } & JobBoardSearchInput, @CurrentUser() user: AuthUser) {
     const { board, ...input } = dto;
-    return this.service.search(board, input);
+    return withHhUser(user?.id, () => this.service.search(board, input));
   }
 
   @Post('sync-responses')
@@ -326,8 +329,8 @@ export class JobBoardsController {
   }
 
   @Post('candidates/:id/refresh-resume')
-  refreshOne(@Param('id') id: string) {
-    return this.service.refreshOneCandidate(id);
+  refreshOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return withHhUser(user?.id, () => this.service.refreshOneCandidate(id));
   }
 
   @Get('messenger-links')

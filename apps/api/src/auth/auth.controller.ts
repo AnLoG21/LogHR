@@ -34,6 +34,7 @@ class UpdateProfileDto {
   @IsOptional() @IsString() lastName?: string;
   @IsOptional() @IsString() middleName?: string;
   @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() mangoExtension?: string;
 }
 
 class ChangePasswordDto {

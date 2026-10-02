@@ -41,7 +41,7 @@ function AdminInner() {
   const [userMsg, setUserMsg] = useState('');
 
   const connectHh = useMutation({
-    mutationFn: () => api<{ url: string }>('/integrations/hh/authorize'),
+    mutationFn: () => api<{ url: string }>('/integrations/hh/authorize?mode=company'),
     onSuccess: (res) => { window.location.href = res.url; },
     onError: (e: any) => setHhMsg(e?.message || 'Не удалось начать подключение'),
   });
@@ -160,9 +160,11 @@ function AdminInner() {
           </Card>
 
           <Card className="p-4 lg:col-span-2">
-            <div className="font-bold text-[var(--brand-primary)] mb-1">HeadHunter</div>
+            <div className="font-bold text-[var(--brand-primary)] mb-1">HeadHunter компании</div>
             <div className="text-xs text-[var(--sk-muted)] mb-3">
-              Подключение аккаунта работодателя для публикации вакансий, импорта откликов и чата.
+              Общий аккаунт работодателя: импорт откликов и поиск резюме для всей компании. Каждый рекрутёр может
+              дополнительно подключить свой менеджерский аккаунт в «Мой профиль» — тогда публикации и переписка идут от его имени.
+              Кто что подключил — в разделе <a className="sk-link" href="/team">«Моя команда»</a>.
               В кабинете разработчика HH укажите Redirect URI:
               <code className="ml-1 break-all">{hh.data?.redirectUri || 'https://hrm.infiit.ru/api/integrations/hh/callback'}</code>
             </div>
@@ -194,6 +196,7 @@ function AdminInner() {
           </Card>
 
           <MaxAdminCard />
+          <MangoAdminCard />
 
           <Card className="p-4">
             <div className="font-bold text-[var(--brand-primary)] mb-3">Интеграции</div>
@@ -263,6 +266,49 @@ function AdminInner() {
         </div>
       </Modal>
     </AppShell>
+  );
+}
+
+function MangoAdminCard() {
+  const mango = useQuery({ queryKey: ['mango-status'], queryFn: () => api<any>('/integrations/mango/status') });
+  const calls = useQuery({
+    queryKey: ['mango-calls'],
+    queryFn: () => api<any[]>('/integrations/mango/calls?limit=10'),
+    enabled: !!mango.data?.configured,
+  });
+  return (
+    <Card className="p-4 lg:col-span-2">
+      <div className="font-bold text-[var(--brand-primary)] mb-1">Mango Office (телефония)</div>
+      <div className="text-xs text-[var(--sk-muted)] mb-3">
+        Звонок из карточки кандидата: сначала звонит телефон сотрудника в Mango, после ответа — набирается кандидат.
+        В кабинете Mango откройте «Интеграции → API коннектор», скопируйте уникальный код и ключ для подписи в{' '}
+        <code>deploy/.env</code> как <code>MANGO_VPBX_API_KEY</code> и <code>MANGO_VPBX_API_SALT</code>. Там же укажите адрес
+        внешней системы: <code className="break-all">{mango.data?.eventsUrl || 'https://hrm.infiit.ru/api/integrations/mango'}</code>.
+        Каждый сотрудник вписывает свой внутренний номер в «Мой профиль».
+      </div>
+      {mango.data ? (
+        <div className="text-sm space-y-1 mb-2">
+          <div>Статус: <b>{mango.data.configured ? 'подключён' : 'не подключён'}</b></div>
+          {mango.data.lineNumber ? <div>Номер для исходящих: {mango.data.lineNumber}</div> : null}
+          <div className="text-xs text-[var(--sk-muted)]">{mango.data.note}</div>
+        </div>
+      ) : null}
+      {calls.data?.length ? (
+        <div className="mt-3">
+          <div className="text-xs text-[var(--sk-muted)] mb-1">Последние звонки</div>
+          <div className="space-y-1 max-h-48 overflow-auto">
+            {calls.data.map((c: any) => (
+              <div key={c.id} className="flex justify-between text-sm border-b border-[var(--line)] pb-1">
+                <span>{c.subject?.replace('Mango event', 'Событие') || c.to}</span>
+                <span className="text-xs text-[var(--sk-muted)]">
+                  {new Date(c.createdAt).toLocaleString('ru-RU')} · {c.status === 'SENT' ? 'набран' : c.status === 'FAILED' ? 'ошибка' : 'событие'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 

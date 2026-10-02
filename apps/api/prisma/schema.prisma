@@ -103,6 +103,8 @@ model User {
   lastName           String
   middleName         String?
   phone              String?
+  /** Внутренний номер сотрудника в Mango ВАТС (например 101) */
+  mangoExtension     String?
   role               SystemRole         @default(RECRUITER)
   isActive           Boolean            @default(true)
   orgUnitId          String?
@@ -124,6 +126,24 @@ model User {
   checksAssigned     Check[]            @relation("CheckAssignee")
   savedFilters       SavedFilter[]
   assignedCandidates Candidate[] @relation("CandidateAssignee")
+  integrations       UserIntegration[]
+}
+
+/** Личные подключения сотрудника (HH OAuth и т.п.) */
+model UserIntegration {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider    String
+  credentials Json
+  isActive    Boolean  @default(true)
+  label       String?
+  connectedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([provider])
 }
 
 model Branding {
