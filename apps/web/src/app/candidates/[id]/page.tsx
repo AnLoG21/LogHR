@@ -64,6 +64,17 @@ function CandidateDetailInner() {
   });
   const [tagPick, setTagPick] = useState('');
   const [commentOpen, setCommentOpen] = useState(sp.get('tab') === 'comments');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [moreOpen]);
 
   useEffect(() => {
     if (sp.get('tab') === 'comments' || sp.get('tab') === 'history') setTab('history');
@@ -325,18 +336,19 @@ function CandidateDetailInner() {
                 {c.photoUrl ? <img src={c.photoUrl} alt="" /> : `${(c.lastName || '?')[0]}${(c.firstName || '?')[0]}`}
               </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--sk-line)' }}>
+            <div className="candidate-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--sk-line)' }}>
               <button
                 type="button"
                 className="sk-btn sk-btn-icon"
                 title="Избранное"
+                aria-label="Избранное"
                 onClick={() => toggleFav.mutate()}
                 style={c.isFavorite ? { color: '#f59e0b' } : undefined}
               >
                 <Icon name="star" />
               </button>
               <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" /> Редактировать</Button>
-              <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" /> Добавить комментарий</Button>
+              <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" /> Комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone || call.isPending}>
                 {call.isPending ? 'Соединяем…' : 'Позвонить'}
               </Button>
@@ -346,36 +358,73 @@ function CandidateDetailInner() {
                 </span>
               ) : null}
               <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
-                <Icon name="whatsapp" /> WhatsApp
+                <Icon name="comment" /> MAX / чаты
               </Button>
-              <Button variant="ghost" onClick={() => setMergeOpen(true)}>Дубликаты</Button>
-              <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
-                На согласование
-              </Button>
-              {c.externalId && c.source === 'HH' ? (
+              <div className="action-menu" ref={moreRef}>
                 <button
                   type="button"
                   className="sk-btn sk-btn-icon"
-                  title="Обновить с HH"
-                  disabled={refreshHh.isPending}
-                  onClick={() => refreshHh.mutate()}
+                  title="Ещё действия"
+                  aria-label="Ещё действия"
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((v) => !v)}
                 >
-                  <Icon name="refresh" />
+                  <Icon name="more" />
                 </button>
-              ) : null}
-              {canDelete ? (
-                <ConfirmDelete
-                  label="Удалить кандидата"
-                  question="Удалить кандидата безвозвратно? Офферы, проверки и вложения тоже удалятся."
-                  onConfirm={() => removeCandidate.mutate()}
-                  pending={removeCandidate.isPending}
-                />
-              ) : null}
-              {canPdn && !c.pdnConsentAt ? (
-                <Button variant="ghost" disabled={pdnConsent.isPending} onClick={() => pdnConsent.mutate()}>
-                  Отметить согласие на ПДн
-                </Button>
-              ) : null}
+                {moreOpen ? (
+                  <div className="action-menu-pop" role="menu">
+                    <button type="button" role="menuitem" className="action-menu-item" onClick={() => { setMergeOpen(true); setMoreOpen(false); }}>
+                      Дубликаты
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="action-menu-item"
+                      disabled={createCheck.isPending}
+                      onClick={() => { createCheck.mutate('FEEDBACK'); setMoreOpen(false); }}
+                    >
+                      На согласование
+                    </button>
+                    {c.externalId && c.source === 'HH' ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="action-menu-item"
+                        disabled={refreshHh.isPending}
+                        onClick={() => { refreshHh.mutate(); setMoreOpen(false); }}
+                      >
+                        {refreshHh.isPending ? 'Обновление с HH…' : 'Обновить с HH'}
+                      </button>
+                    ) : null}
+                    {canPdn && !c.pdnConsentAt ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="action-menu-item"
+                        disabled={pdnConsent.isPending}
+                        onClick={() => { pdnConsent.mutate(); setMoreOpen(false); }}
+                      >
+                        Отметить согласие на ПДн
+                      </button>
+                    ) : null}
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="action-menu-item action-menu-item-danger"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          if (window.confirm('Удалить кандидата безвозвратно? Офферы, проверки и вложения тоже удалятся.')) {
+                            removeCandidate.mutate();
+                          }
+                        }}
+                      >
+                        Удалить кандидата
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
             {approveLink ? (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--sk-success-soft)', borderRadius: 8, fontSize: 13 }}>

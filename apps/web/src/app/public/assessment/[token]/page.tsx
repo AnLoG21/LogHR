@@ -65,7 +65,7 @@ export default function PublicAssessmentPage() {
         {error ? <p className="text-[var(--sk-danger)]">Ссылка недействительна или истекла</p> : null}
         {data?.status === 'COMPLETED' || submit.isSuccess ? (
           <Card className="p-6 text-center">
-            <div className="text-[var(--sk-green)] font-semibold text-lg">Ответы сохранены. Спасибо!</div>
+            <div className="text-[var(--sk-green-text)] font-semibold text-lg">Ответы сохранены. Спасибо!</div>
           </Card>
         ) : data ? (
           <Card className="p-6 space-y-6">
