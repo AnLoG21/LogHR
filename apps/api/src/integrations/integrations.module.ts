@@ -7,10 +7,15 @@ import { Public, Roles } from '../common/guards';
 import { aiProviders } from '../ai/ai.module';
 import { HhAuthService } from './hh-auth.service';
 import { hhUserAgent, resolveHhToken } from './hh-token';
+import { MaxBotService } from './max-bot.service';
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private prisma: PrismaService, private hhAuth: HhAuthService) {}
+  constructor(
+    private prisma: PrismaService,
+    private hhAuth: HhAuthService,
+    private maxBot: MaxBotService,
+  ) {}
 
   async status() {
     const rows = await this.prisma.integrationStatus.findMany({ orderBy: { code: 'asc' } });
@@ -41,6 +46,7 @@ export class IntegrationsService {
       S3: process.env.STORAGE_MODE === 's3' && !!process.env.S3_ENDPOINT,
       AI: aiProviders().length > 0,
       HH_CHAT: !!hhToken,
+      MAX: this.maxBot.configured(),
       DADATA: !!(process.env.DADATA_TOKEN || process.env.DADATA_API_KEY),
     };
     return rows.map((r) => {
@@ -49,6 +55,7 @@ export class IntegrationsService {
       if (r.code === 'REDIS' && !live) note = 'очередь недоступна';
       if (r.code === 'HH') note = hhStatus.note;
       if (r.code === 'HH_CHAT') note = live ? 'доступен через HH' : 'нужно подключить HeadHunter';
+      if (r.code === 'MAX') note = this.maxBot.status().note;
       if (r.code === 'AI' && live) note = 'подключено';
       return {
         ...r,
@@ -56,6 +63,7 @@ export class IntegrationsService {
         live,
         note,
         ...(r.code === 'HH' ? { hh: hhStatus } : {}),
+        ...(r.code === 'MAX' ? { max: this.maxBot.status() } : {}),
       };
     });
   }
@@ -74,6 +82,7 @@ export class IntegrationsService {
       { code: 'S3', name: 'Файловое хранилище' },
       { code: 'AI', name: 'ИИ-помощник' },
       { code: 'HH_CHAT', name: 'Чат HeadHunter' },
+      { code: 'MAX', name: 'MAX Мессенджер' },
       { code: 'DADATA', name: 'Подсказки адресов' },
     ];
     for (const d of defaults) {
@@ -296,7 +305,11 @@ export class IntegrationsService {
 @ApiTags('integrations')
 @Controller('integrations')
 export class IntegrationsController {
-  constructor(private service: IntegrationsService, private hhAuth: HhAuthService) {}
+  constructor(
+    private service: IntegrationsService,
+    private hhAuth: HhAuthService,
+    private maxBot: MaxBotService,
+  ) {}
 
   @ApiBearerAuth()
   @Get('status')
@@ -346,6 +359,37 @@ export class IntegrationsController {
     return this.hhAuth.disconnect();
   }
 
+  @ApiBearerAuth()
+  @Get('max/status')
+  maxStatus() {
+    return this.maxBot.status();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN)
+  @Post('max/register-webhook')
+  maxRegisterWebhook() {
+    return this.maxBot.ensureWebhook();
+  }
+
+  @ApiBearerAuth()
+  @Get('max-chat/:candidateId')
+  maxChat(@Param('candidateId') candidateId: string) {
+    return this.maxBot.chat(candidateId);
+  }
+
+  @ApiBearerAuth()
+  @Post('max-chat/:candidateId')
+  maxSend(@Param('candidateId') candidateId: string, @Body('text') text: string) {
+    return this.maxBot.send(candidateId, text);
+  }
+
+  @Public()
+  @Post('max/webhook')
+  maxWebhook(@Body() body: any, @Headers('x-max-bot-api-secret') secret?: string) {
+    return this.maxBot.handleUpdate(body, secret);
+  }
+
   @Public()
   @Post('proaction/webhook')
   webhook(@Body() body: any, @Headers('x-proaction-secret') secret?: string) {
@@ -379,7 +423,7 @@ export class IntegrationsController {
 
 @Module({
   controllers: [IntegrationsController],
-  providers: [IntegrationsService, HhAuthService],
-  exports: [IntegrationsService, HhAuthService],
+  providers: [IntegrationsService, HhAuthService, MaxBotService],
+  exports: [IntegrationsService, HhAuthService, MaxBotService],
 })
 export class IntegrationsModule {}

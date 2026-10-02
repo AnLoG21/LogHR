@@ -193,6 +193,8 @@ function AdminInner() {
             {hhMsg ? <div className={`text-sm mt-2 ${sp.get('hh') === 'error' ? 'text-[var(--sk-danger)]' : 'text-[var(--sk-text-success)]'}`}>{hhMsg}</div> : null}
           </Card>
 
+          <MaxAdminCard />
+
           <Card className="p-4">
             <div className="font-bold text-[var(--brand-primary)] mb-3">Интеграции</div>
             <div className="space-y-2">
@@ -261,5 +263,37 @@ function AdminInner() {
         </div>
       </Modal>
     </AppShell>
+  );
+}
+
+function MaxAdminCard() {
+  const qc = useQueryClient();
+  const max = useQuery({ queryKey: ['max-status'], queryFn: () => api<any>('/integrations/max/status') });
+  const register = useMutation({
+    mutationFn: () => api('/integrations/max/register-webhook', { method: 'POST', body: '{}' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['max-status'] }),
+  });
+  return (
+    <Card className="p-4 lg:col-span-2">
+      <div className="font-bold text-[var(--brand-primary)] mb-1">MAX (мессенджер)</div>
+      <div className="text-xs text-[var(--sk-muted)] mb-3">
+        У MAX нет чата по номеру телефона. Подключается корпоративный бот на{' '}
+        <a className="sk-link" href="https://dev.max.ru" target="_blank" rel="noreferrer">dev.max.ru</a>
+        : в <code>deploy/.env</code> задайте <code>MAX_BOT_TOKEN</code>, <code>MAX_BOT_USERNAME</code> и при желании{' '}
+        <code>MAX_WEBHOOK_SECRET</code>. Webhook: <code>{max.data?.webhookUrl || 'https://hrm.infiit.ru/api/integrations/max/webhook'}</code>
+      </div>
+      {max.data ? (
+        <div className="text-sm space-y-1 mb-3">
+          <div>Статус: <b>{max.data.configured ? 'настроен' : 'не настроен'}</b></div>
+          {max.data.botUsername ? <div>Бот: @{max.data.botUsername}</div> : null}
+          <div className="text-xs text-[var(--sk-muted)]">{max.data.note}</div>
+        </div>
+      ) : null}
+      <Button variant="ghost" disabled={!max.data?.configured || register.isPending} onClick={() => register.mutate()}>
+        {register.isPending ? 'Подключаем…' : 'Зарегистрировать webhook'}
+      </Button>
+      {register.isSuccess ? <div className="text-sm text-[var(--sk-text-success)] mt-2">Webhook обновлён</div> : null}
+      {register.isError ? <div className="text-sm text-[var(--sk-danger)] mt-2">{(register.error as Error).message}</div> : null}
+    </Card>
   );
 }

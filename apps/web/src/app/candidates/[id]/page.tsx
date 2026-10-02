@@ -80,7 +80,7 @@ function CandidateDetailInner() {
   const messengers = useQuery({
     queryKey: ['messengers', c?.phone],
     enabled: !!c?.phone,
-    queryFn: () => api<any>(`/job-boards/messenger-links?phone=${encodeURIComponent(c.phone)}`),
+    queryFn: () => api<any>(`/job-boards/messenger-links?phone=${encodeURIComponent(c.phone)}&candidateId=${id}`),
   });
 
   const changeStage = useMutation({
@@ -381,9 +381,22 @@ function CandidateDetailInner() {
               {tab === 'messengers' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
                   <WhatsappTemplatesBlock candidateId={id} hasPhone={Boolean(c.phone)} />
-                  <a className="sk-link" href={messengers.data?.whatsapp} target="_blank" rel="noreferrer">WhatsApp WEB</a>
-                  <a className="sk-link" href={messengers.data?.telegram} target="_blank" rel="noreferrer">Telegram WEB</a>
-                  <a className="sk-link" href={messengers.data?.max} target="_blank" rel="noreferrer">MAX WEB</a>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    <a className="sk-btn sk-btn-outline" href={messengers.data?.whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
+                    <a className="sk-btn sk-btn-outline" href={messengers.data?.telegram} target="_blank" rel="noreferrer">Telegram</a>
+                    {messengers.data?.maxInvite ? (
+                      <a className="sk-btn sk-btn-outline" href={messengers.data.maxInvite} target="_blank" rel="noreferrer">Открыть бота MAX</a>
+                    ) : (
+                      <a className="sk-btn sk-btn-outline" href="https://max.ru/" target="_blank" rel="noreferrer">MAX</a>
+                    )}
+                    {messengers.data?.maxShare ? (
+                      <a className="sk-btn sk-btn-outline" href={messengers.data.maxShare} target="_blank" rel="noreferrer">Поделиться в MAX</a>
+                    ) : null}
+                  </div>
+                  {messengers.data?.maxNote ? (
+                    <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{messengers.data.maxNote}</div>
+                  ) : null}
+                  <MaxChatBlock candidateId={id} />
                   <HhChatBlock candidateId={id} />
                 </div>
               )}
@@ -764,6 +777,96 @@ function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string
             </span>
           </div>
           {log.isSuccess ? <div style={{ fontSize: 12, color: 'var(--sk-text-success)' }}>Записано в комментарии кандидата</div> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function MaxChatBlock({ candidateId }: { candidateId: string }) {
+  const [text, setText] = useState('');
+  const [copied, setCopied] = useState(false);
+  const qc = useQueryClient();
+  const chat = useQuery({
+    queryKey: ['max-chat', candidateId],
+    queryFn: () => api<any>(`/integrations/max-chat/${candidateId}`),
+  });
+  const send = useMutation({
+    mutationFn: () =>
+      api(`/integrations/max-chat/${candidateId}`, { method: 'POST', body: JSON.stringify({ text }) }),
+    onSuccess: (res: any) => {
+      if (res?.ok) {
+        setText('');
+        qc.invalidateQueries({ queryKey: ['max-chat', candidateId] });
+      }
+    },
+  });
+  const copyInvite = async () => {
+    const url = chat.data?.invite;
+    if (!url) return;
+    await navigator.clipboard?.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <div style={{ padding: 12, background: 'var(--sk-soft)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ fontWeight: 600 }}>Чат MAX</div>
+        <Button variant="ghost" onClick={() => chat.refetch()} disabled={chat.isFetching}>Обновить</Button>
+      </div>
+      {chat.isLoading ? <div style={{ color: 'var(--sk-muted)' }}>Загрузка…</div> : null}
+      {chat.data ? (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{chat.data.note}</div>
+          {chat.data.invite ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              <Button variant="ghost" onClick={copyInvite}>{copied ? 'Ссылка скопирована' : 'Скопировать ссылку для кандидата'}</Button>
+              <a className="sk-btn sk-btn-outline" href={chat.data.invite} target="_blank" rel="noreferrer">Открыть ссылку</a>
+              {chat.data.share ? (
+                <a className="sk-btn sk-btn-outline" href={chat.data.share} target="_blank" rel="noreferrer">Отправить через «Поделиться»</a>
+              ) : null}
+            </div>
+          ) : null}
+          {chat.data.linked ? (
+            <>
+              <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', display: 'grid', gap: 6 }}>
+                {(chat.data.messages || []).map((m: any) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      fontSize: 13,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      background: m.fromBot ? 'var(--sk-success-soft)' : 'var(--sk-panel)',
+                      border: '1px solid var(--sk-line)',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 2 }}>
+                      {m.fromBot ? 'Рекрутер (бот)' : 'Кандидат'}
+                      {m.at ? ` · ${new Date(m.at).toLocaleString('ru-RU')}` : ''}
+                    </div>
+                    {m.text || '—'}
+                  </div>
+                ))}
+                {!(chat.data.messages || []).length ? (
+                  <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>Сообщений пока нет</div>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <Input
+                  placeholder="Сообщение в MAX…"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button disabled={!text.trim() || send.isPending} onClick={() => send.mutate()}>Отправить</Button>
+              </div>
+            </>
+          ) : null}
+          {send.data && !(send.data as any).ok ? (
+            <div style={{ fontSize: 12, color: 'var(--sk-text-danger)', marginTop: 6 }}>{(send.data as any).note}</div>
+          ) : null}
         </>
       ) : null}
     </div>

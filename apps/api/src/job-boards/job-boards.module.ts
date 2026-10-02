@@ -239,12 +239,25 @@ export class JobBoardsService {
     return { ok: true, candidate: updated };
   }
 
-  messengerLinks(phone?: string) {
+  messengerLinks(phone?: string, candidateId?: string) {
     const normalized = (phone || '').replace(/\D/g, '');
+    const bot = (process.env.MAX_BOT_USERNAME || '').replace(/^@/, '');
+    const invite =
+      bot && candidateId
+        ? `https://max.ru/${bot}?start=c_${candidateId.replace(/-/g, '').slice(0, 32)}`
+        : null;
+    const shareText = invite
+      ? `Здравствуйте! Напишите нам в MAX: ${invite}`
+      : 'Здравствуйте! Напишите нам в мессенджер MAX.';
     return {
       whatsapp: normalized ? `https://wa.me/${normalized}` : 'https://web.whatsapp.com/',
       telegram: normalized ? `https://t.me/+${normalized}` : 'https://web.telegram.org/',
-      max: 'https://max.ru/',
+      max: invite || 'https://max.ru/',
+      maxInvite: invite,
+      maxShare: `https://max.ru/:share?text=${encodeURIComponent(shareText)}`,
+      maxNote: invite
+        ? 'У MAX нет чата по номеру телефона. Отправьте кандидату ссылку-приглашение — он откроет бота, и переписка появится в карточке.'
+        : 'Бот MAX ещё не настроен. Администратор задаёт MAX_BOT_TOKEN и MAX_BOT_USERNAME.',
     };
   }
 
@@ -318,8 +331,8 @@ export class JobBoardsController {
   }
 
   @Get('messenger-links')
-  links(@Query('phone') phone?: string) {
-    return this.service.messengerLinks(phone);
+  links(@Query('phone') phone?: string, @Query('candidateId') candidateId?: string) {
+    return this.service.messengerLinks(phone, candidateId);
   }
 }
 
