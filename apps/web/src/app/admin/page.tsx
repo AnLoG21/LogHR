@@ -191,9 +191,13 @@ function AdminInner() {
                 {hh.data?.connected ? 'Переподключить HeadHunter' : 'Подключить HeadHunter'}
               </Button>
               {hh.data?.viaOAuth ? (
-                <Button variant="ghost" disabled={disconnectHh.isPending} onClick={() => disconnectHh.mutate()}>
-                  Отключить
-                </Button>
+                <ConfirmDelete
+                  label="Отключить"
+                  question="Отключить HeadHunter компании?"
+                  showIcon={false}
+                  onConfirm={() => disconnectHh.mutate()}
+                  pending={disconnectHh.isPending}
+                />
               ) : null}
             </div>
             {hhMsg ? <div className={`text-sm mt-2 ${sp.get('hh') === 'error' ? 'text-[var(--sk-danger)]' : 'text-[var(--sk-text-success)]'}`}>{hhMsg}</div> : null}
