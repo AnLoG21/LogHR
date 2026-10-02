@@ -10,6 +10,12 @@ const ACTION_LABELS: Record<string, string> = {
   logout: 'Выход',
   password_changed: 'Смена пароля',
   stage_change: 'Смена этапа',
+  create: 'Создание',
+  delete: 'Удаление',
+  depersonalize: 'Обезличивание',
+  status_change: 'Смена статуса',
+  publish: 'Публикация',
+  publish_failed: 'Ошибка публикации',
 };
 
 export default function AuditPage() {

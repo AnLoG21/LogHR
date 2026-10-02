@@ -11,10 +11,11 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
+import { AuditModule, AuditService } from '../audit/audit.module';
 
 @Injectable()
 export class OffersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService) {}
 
   async list(query: { page?: number; pageSize?: number; status?: OfferStatus }, user: AuthUser) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
@@ -56,7 +57,7 @@ export class OffersService {
     if (!data.candidateId) throw new BadRequestException('Не указан кандидат');
     const salary = data.salary != null && data.salary !== ('' as any) ? Number(data.salary) : undefined;
     if (salary !== undefined && (!Number.isFinite(salary) || salary < 0)) throw new BadRequestException('Некорректный оклад');
-    return this.prisma.offer.create({
+    const offer = await this.prisma.offer.create({
       data: {
         candidateId: data.candidateId,
         position: data.position?.trim() || undefined,
@@ -69,6 +70,15 @@ export class OffersService {
         status: 'DRAFT',
       },
     });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'create',
+      entity: 'Offer',
+      entityId: offer.id,
+      meta: { candidateId: data.candidateId },
+    });
+    return offer;
   }
 
   async update(id: string, data: { position?: string; salary?: number | null; startDate?: string | null; conditions?: string }) {
@@ -89,17 +99,34 @@ export class OffersService {
     return this.prisma.offer.update({ where: { id }, data: patch });
   }
 
-  async remove(id: string) {
+  async remove(id: string, user: AuthUser) {
     const offer = await this.prisma.offer.findUnique({ where: { id } });
     if (!offer) throw new NotFoundException();
     if (offer.status === 'ACCEPTED') throw new BadRequestException('Принятый оффер удалить нельзя');
     await this.prisma.offer.delete({ where: { id } });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'delete',
+      entity: 'Offer',
+      entityId: id,
+      meta: { candidateId: offer.candidateId, status: offer.status },
+    });
     return { ok: true };
   }
 
-  async changeStatus(id: string, status: OfferStatus) {
+  async changeStatus(id: string, status: OfferStatus, user: AuthUser) {
     if (!Object.values(OfferStatus).includes(status)) throw new BadRequestException('Неизвестный статус оффера');
-    return this.prisma.offer.update({ where: { id }, data: { status } });
+    const updated = await this.prisma.offer.update({ where: { id }, data: { status } });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'status_change',
+      entity: 'Offer',
+      entityId: id,
+      meta: { status, candidateId: updated.candidateId },
+    });
+    return updated;
   }
 
   async getByToken(token: string) {
@@ -188,14 +215,18 @@ export class OffersController {
   @ApiBearerAuth()
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.remove(id, user);
   }
 
   @ApiBearerAuth()
   @Post(':id/status')
-  changeStatus(@Param('id') id: string, @Body('status') status: OfferStatus) {
-    return this.service.changeStatus(id, status);
+  changeStatus(
+    @Param('id') id: string,
+    @Body('status') status: OfferStatus,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.changeStatus(id, status, user);
   }
 
   @ApiBearerAuth()
@@ -218,5 +249,10 @@ export class OffersController {
   }
 }
 
-@Module({ controllers: [OffersController], providers: [OffersService], exports: [OffersService] })
+@Module({
+  imports: [AuditModule],
+  controllers: [OffersController],
+  providers: [OffersService],
+  exports: [OffersService],
+})
 export class OffersModule {}

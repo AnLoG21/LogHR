@@ -772,7 +772,16 @@ export class CandidatesService {
     }
     if (!fields.includes('firstName')) data.firstName = 'Обезличен';
     if (!fields.includes('lastName')) data.lastName = candidate.id.slice(0, 8);
-    return this.prisma.candidate.update({ where: { id }, data });
+    const updated = await this.prisma.candidate.update({ where: { id }, data });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'depersonalize',
+      entity: 'Candidate',
+      entityId: id,
+      meta: { fields },
+    });
+    return updated;
   }
 
   /** Полное удаление карточки (тестовые / ошибочно созданные). Задачи отвязываются, файлы удаляются. */
@@ -790,6 +799,13 @@ export class CandidatesService {
       this.prisma.task.updateMany({ where: { candidateId: id }, data: { candidateId: null } }),
       this.prisma.candidate.delete({ where: { id } }),
     ]);
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'delete',
+      entity: 'Candidate',
+      entityId: id,
+    });
     return { ok: true };
   }
 

@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res, UploadedFile, UploadedFiles, UseInterceptors,
+  Body, Controller, Delete, Get, Injectable, Module, Patch, Post, Headers, Param, Query, Res, UploadedFile, UploadedFiles, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -504,6 +504,37 @@ export class IntegrationsController {
   @Get('max/quick-replies')
   maxQuickReplies() {
     return this.maxBot.listQuickReplies();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
+  @Get('max/quick-replies/all')
+  maxQuickRepliesAll() {
+    return this.maxBot.listQuickRepliesAdmin();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
+  @Post('max/quick-replies')
+  maxQuickReplyCreate(@Body() body: { text: string; sortOrder?: number; isActive?: boolean }) {
+    return this.maxBot.createQuickReply(body);
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
+  @Patch('max/quick-replies/:id')
+  maxQuickReplyUpdate(
+    @Param('id') id: string,
+    @Body() body: { text?: string; sortOrder?: number; isActive?: boolean },
+  ) {
+    return this.maxBot.updateQuickReply(id, body);
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
+  @Delete('max/quick-replies/:id')
+  maxQuickReplyDelete(@Param('id') id: string) {
+    return this.maxBot.removeQuickReply(id);
   }
 
   @Public()

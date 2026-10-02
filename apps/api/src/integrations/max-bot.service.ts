@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/guards';
@@ -995,6 +995,51 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+  }
+
+  async listQuickRepliesAdmin() {
+    return this.prisma.chatQuickReply.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async createQuickReply(data: { text: string; sortOrder?: number; isActive?: boolean }) {
+    const text = String(data.text || '').trim();
+    if (!text) throw new BadRequestException('Введите текст ответа');
+    if (text.length > 1000) throw new BadRequestException('Слишком длинный текст');
+    const maxOrder = await this.prisma.chatQuickReply.aggregate({ _max: { sortOrder: true } });
+    return this.prisma.chatQuickReply.create({
+      data: {
+        text,
+        sortOrder: data.sortOrder ?? ((maxOrder._max.sortOrder ?? -1) + 1),
+        isActive: data.isActive !== false,
+      },
+    });
+  }
+
+  async updateQuickReply(
+    id: string,
+    data: { text?: string; sortOrder?: number; isActive?: boolean },
+  ) {
+    const row = await this.prisma.chatQuickReply.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException();
+    const patch: any = {};
+    if (data.text !== undefined) {
+      const text = String(data.text).trim();
+      if (!text) throw new BadRequestException('Введите текст ответа');
+      if (text.length > 1000) throw new BadRequestException('Слишком длинный текст');
+      patch.text = text;
+    }
+    if (data.sortOrder !== undefined) patch.sortOrder = Number(data.sortOrder) || 0;
+    if (data.isActive !== undefined) patch.isActive = !!data.isActive;
+    return this.prisma.chatQuickReply.update({ where: { id }, data: patch });
+  }
+
+  async removeQuickReply(id: string) {
+    const row = await this.prisma.chatQuickReply.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException();
+    await this.prisma.chatQuickReply.delete({ where: { id } });
+    return { ok: true };
   }
 
   async sendFiles(

@@ -9,10 +9,11 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
+import { AuditModule, AuditService } from '../audit/audit.module';
 
 @Injectable()
 export class ChecksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService) {}
 
   async list(
     query: { page?: number; pageSize?: number; type?: CheckType; status?: CheckStatus },
@@ -46,8 +47,8 @@ export class ChecksService {
     return pageResult(items, total, page, pageSize);
   }
 
-  create(data: { candidateId: string; type: CheckType; assigneeId?: string; formData?: any }, user: AuthUser) {
-    return this.prisma.check.create({
+  async create(data: { candidateId: string; type: CheckType; assigneeId?: string; formData?: any }, user: AuthUser) {
+    const check = await this.prisma.check.create({
       data: {
         candidateId: data.candidateId,
         type: data.type,
@@ -56,13 +57,31 @@ export class ChecksService {
         externalToken: randomUUID(),
       },
     });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'create',
+      entity: 'Check',
+      entityId: check.id,
+      meta: { candidateId: data.candidateId, type: data.type },
+    });
+    return check;
   }
 
-  changeStatus(id: string, status: CheckStatus, comment?: string, formData?: any) {
-    return this.prisma.check.update({
+  async changeStatus(id: string, status: CheckStatus, user: AuthUser, comment?: string, formData?: any) {
+    const updated = await this.prisma.check.update({
       where: { id },
       data: { status, comment, ...(formData ? { formData } : {}) },
     });
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'status_change',
+      entity: 'Check',
+      entityId: id,
+      meta: { status, candidateId: updated.candidateId, comment },
+    });
+    return updated;
   }
 
   async getByToken(token: string) {
@@ -154,8 +173,9 @@ export class ChecksController {
   status(
     @Param('id') id: string,
     @Body() dto: { status: CheckStatus; comment?: string; formData?: any },
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.service.changeStatus(id, dto.status, dto.comment, dto.formData);
+    return this.service.changeStatus(id, dto.status, user, dto.comment, dto.formData);
   }
 
   @Public()
@@ -171,5 +191,10 @@ export class ChecksController {
   }
 }
 
-@Module({ controllers: [ChecksController], providers: [ChecksService], exports: [ChecksService] })
+@Module({
+  imports: [AuditModule],
+  controllers: [ChecksController],
+  providers: [ChecksService],
+  exports: [ChecksService],
+})
 export class ChecksModule {}

@@ -9,10 +9,11 @@ import { getJobBoardAdapter } from '../job-boards/adapters';
 import { CurrentUser } from '../common/current-user.decorator';
 import type { AuthUser } from '../common/guards';
 import { withHhUser } from '../integrations/hh-token';
+import { AuditModule, AuditService } from '../audit/audit.module';
 
 @Injectable()
 export class PublicationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService) {}
 
   list(vacancyId?: string) {
     return this.prisma.publication.findMany({
@@ -160,12 +161,15 @@ export class PublicationsService {
     return { ran: results.length, results };
   }
 
-  async publish(data: {
-    vacancyId: string;
-    board: JobBoard;
-    accountId?: string;
-    templateId?: string;
-  }) {
+  async publish(
+    data: {
+      vacancyId: string;
+      board: JobBoard;
+      accountId?: string;
+      templateId?: string;
+    },
+    user?: AuthUser,
+  ) {
     const vacancy = await this.prisma.vacancy.findUnique({
       where: { id: data.vacancyId },
       include: { candidateProfile: true, orgUnit: true },
@@ -218,7 +222,7 @@ export class PublicationsService {
         externalRef: publication.id,
       });
       const mocked = !!(result as any).mocked;
-      return this.prisma.publication.update({
+      const updated = await this.prisma.publication.update({
         where: { id: publication.id },
         data: {
           status: mocked ? 'DRAFT' : 'PUBLISHED',
@@ -237,11 +241,29 @@ export class PublicationsService {
           } as Prisma.InputJsonValue,
         },
       });
+      await this.audit.log({
+        actorId: user?.id,
+        actorEmail: user?.email,
+        action: 'publish',
+        entity: 'Publication',
+        entityId: updated.id,
+        meta: { vacancyId: data.vacancyId, board: data.board, status: updated.status, mocked },
+      });
+      return updated;
     } catch (e: any) {
-      return this.prisma.publication.update({
+      const failed = await this.prisma.publication.update({
         where: { id: publication.id },
         data: { status: 'FAILED', error: e?.message || 'Publish failed' },
       });
+      await this.audit.log({
+        actorId: user?.id,
+        actorEmail: user?.email,
+        action: 'publish_failed',
+        entity: 'Publication',
+        entityId: failed.id,
+        meta: { vacancyId: data.vacancyId, board: data.board, error: e?.message },
+      });
+      return failed;
     }
   }
 }
@@ -347,9 +369,14 @@ export class PublicationsController {
     @Body() dto: { vacancyId: string; board: JobBoard; accountId?: string; templateId?: string },
     @CurrentUser() user: AuthUser,
   ) {
-    return withHhUser(user?.id, () => this.service.publish(dto));
+    return withHhUser(user?.id, () => this.service.publish(dto, user));
   }
 }
 
-@Module({ controllers: [PublicationsController], providers: [PublicationsService], exports: [PublicationsService] })
+@Module({
+  imports: [AuditModule],
+  controllers: [PublicationsController],
+  providers: [PublicationsService],
+  exports: [PublicationsService],
+})
 export class PublicationsModule {}
