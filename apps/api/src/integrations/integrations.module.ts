@@ -1,7 +1,7 @@
 import {
-  Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res, UploadedFile, UseInterceptors,
+  Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res, UploadedFile, UploadedFiles, UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
 import type { Response } from 'express';
@@ -13,6 +13,8 @@ import { HhAuthService } from './hh-auth.service';
 import { hhUserAgent, resolveHhToken, withHhUser } from './hh-token';
 import { MaxBotService } from './max-bot.service';
 import { MangoService } from './mango.service';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Injectable()
 export class IntegrationsService {
@@ -487,14 +489,22 @@ export class IntegrationsController {
 
   @ApiBearerAuth()
   @Post('max-chat/:candidateId/file')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  @UseInterceptors(FilesInterceptor('file', 5, { limits: { fileSize: 20 * 1024 * 1024 } }))
   maxSendFile(
     @Param('candidateId') candidateId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Express.Multer.File[],
     @Body('text') text: string | undefined,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.maxBot.sendFile(candidateId, file, user, text);
+    const list = files?.length ? files : [];
+    if (list.length === 1) return this.maxBot.sendFile(candidateId, list[0], user, text);
+    return this.maxBot.sendFiles(candidateId, list, user, text);
+  }
+
+  @ApiBearerAuth()
+  @Get('max/quick-replies')
+  maxQuickReplies() {
+    return this.maxBot.listQuickReplies();
   }
 
   @Public()
@@ -535,6 +545,7 @@ export class IntegrationsController {
 }
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [IntegrationsController],
   providers: [IntegrationsService, HhAuthService, MaxBotService, MangoService],
   exports: [IntegrationsService, HhAuthService, MaxBotService, MangoService],

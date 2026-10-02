@@ -49,8 +49,12 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password, dto.deviceId);
+  login(@Body() dto: LoginDto, @Req() req: any) {
+    const ip =
+      (req.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket?.remoteAddress;
+    return this.auth.login(dto.email, dto.password, dto.deviceId, ip);
   }
 
   @Public()

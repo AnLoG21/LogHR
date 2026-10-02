@@ -864,6 +864,26 @@ html[data-theme="dark"] .bg-white { background-color: var(--sk-panel) !important
   }
   .tg-attach:hover:not(:disabled) { color: var(--sk-ink); background: var(--sk-soft); }
   .tg-attach:disabled { opacity: 0.45; cursor: default; }
+  .tg-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px 0;
+    background: var(--sk-panel);
+  }
+  .tg-quick-chip {
+    max-width: 100%;
+    border: 1px solid var(--sk-line);
+    background: var(--sk-soft);
+    color: var(--sk-ink);
+    border-radius: 14px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .tg-quick-chip:hover:not(:disabled) { border-color: var(--sk-focus); }
+  .tg-quick-chip:disabled { opacity: 0.5; cursor: default; }
   .tg-bubble-att { margin-bottom: 4px; }
   .tg-bubble-img-link { display: block; border-radius: 10px; overflow: hidden; }
   .tg-bubble-img {

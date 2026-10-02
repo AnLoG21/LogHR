@@ -958,6 +958,10 @@ function MaxChatBlock({ candidateId, candidateName }: { candidateId: string; can
     queryFn: () => api<any>(`/integrations/max-chat/${candidateId}`),
     refetchInterval: 10_000,
   });
+  const quickReplies = useQuery({
+    queryKey: ['max-quick-replies'],
+    queryFn: () => api<Array<{ id: string; text: string }>>('/integrations/max/quick-replies'),
+  });
   const send = useMutation({
     mutationFn: () =>
       api(`/integrations/max-chat/${candidateId}`, { method: 'POST', body: JSON.stringify({ text }) }),
@@ -975,9 +979,9 @@ function MaxChatBlock({ candidateId, candidateName }: { candidateId: string; can
     onError: (e: any) => setSendError(e?.message || 'Не удалось отправить'),
   });
   const sendFile = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const fd = new FormData();
-      fd.append('file', file);
+      for (const f of files.slice(0, 5)) fd.append('file', f);
       if (text.trim()) fd.append('text', text.trim());
       return api(`/integrations/max-chat/${candidateId}/file`, { method: 'POST', body: fd });
     },
@@ -1070,6 +1074,22 @@ function MaxChatBlock({ candidateId, candidateName }: { candidateId: string; can
             <div ref={bottomRef} />
           </div>
 
+          {chat.data.linked && (quickReplies.data || []).length ? (
+            <div className="tg-quick-replies">
+              {(quickReplies.data || []).map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  className="tg-quick-chip"
+                  disabled={busy}
+                  onClick={() => setText(q.text)}
+                >
+                  {q.text.length > 36 ? `${q.text.slice(0, 36)}…` : q.text}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <form
             className="tg-composer"
             onSubmit={(e) => {
@@ -1081,13 +1101,14 @@ function MaxChatBlock({ candidateId, candidateName }: { candidateId: string; can
             <input
               ref={fileRef}
               type="file"
+              multiple
               className="hidden"
               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
               onChange={(e) => {
-                const f = e.target.files?.[0];
+                const list = Array.from(e.target.files || []);
                 e.target.value = '';
-                if (!f || !chat.data?.linked || busy) return;
-                sendFile.mutate(f);
+                if (!list.length || !chat.data?.linked || busy) return;
+                sendFile.mutate(list);
               }}
             />
             <button

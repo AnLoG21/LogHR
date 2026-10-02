@@ -37,10 +37,17 @@ import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
 import { assertCanMoveToStage } from '../funnels/transitions';
 import { StorageService } from '../storage/storage.module';
+import { NotificationsModule, NotificationsService } from '../notifications/notifications.module';
+import { AuditModule, AuditService } from '../audit/audit.module';
 
 @Injectable()
 export class CandidatesService {
-  constructor(private prisma: PrismaService, private storage: StorageService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storage: StorageService,
+    private notifications: NotificationsService,
+    private audit: AuditService,
+  ) {}
 
   async list(query: {
     page?: number;
@@ -555,6 +562,34 @@ export class CandidatesService {
     });
 
     await this.maybeLaunchAssessments(id, stageId);
+
+    const name = [candidate.lastName, candidate.firstName].filter(Boolean).join(' ');
+    await this.audit.log({
+      actorId: user.id,
+      actorEmail: user.email,
+      action: 'stage_change',
+      entity: 'Candidate',
+      entityId: id,
+      meta: { stageId, stage: stage.name, comment },
+    });
+    const notifyEmails = new Set<string>();
+    if (candidate.assigneeId) {
+      const a = await this.prisma.user.findUnique({ where: { id: candidate.assigneeId }, select: { email: true } });
+      if (a?.email) notifyEmails.add(a.email);
+    }
+    const hr = candidate.hiringRequestId
+      ? await this.prisma.hiringRequest.findUnique({
+          where: { id: candidate.hiringRequestId },
+          select: { recruiter: { select: { email: true } }, hiringManager: { select: { email: true } } },
+        })
+      : null;
+    if (hr?.recruiter?.email) notifyEmails.add(hr.recruiter.email);
+    if (hr?.hiringManager?.email) notifyEmails.add(hr.hiringManager.email);
+    for (const to of notifyEmails) {
+      if (to === user.email) continue;
+      void this.notifications.sendEmail(to, 'CANDIDATE_STAGE', { name, stage: stage.name }).catch(() => undefined);
+    }
+
     return this.get(id, user);
   }
 
@@ -1075,5 +1110,10 @@ export class CandidatesController {
   }
 }
 
-@Module({ controllers: [CandidatesController], providers: [CandidatesService], exports: [CandidatesService] })
+@Module({
+  imports: [NotificationsModule, AuditModule],
+  controllers: [CandidatesController],
+  providers: [CandidatesService],
+  exports: [CandidatesService],
+})
 export class CandidatesModule {}

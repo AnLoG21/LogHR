@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Badge, Button, Card, Empty, Field, Modal, Select } from '@/components/ui';
+import { AppShell, Badge, Button, Card, ConfirmDelete, Empty, Field, Modal, Select } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import { CHECK_STATUS_LABELS, CHECK_TYPE_LABELS, ruLabel } from '@skillaz/shared';
 
@@ -77,9 +77,28 @@ export default function ChecksPage() {
                     <div className="flex flex-wrap gap-1">
                       {open ? (
                         <>
-                          <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'APPROVED' })}>Одобрить</Button>
-                          <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'REJECTED' })}>Отклонить</Button>
-                          <Button variant="ghost" onClick={() => change.mutate({ id: c.id, status: 'CANCELLED' })}>Отменить</Button>
+                          <ConfirmDelete
+                            label="Одобрить"
+                            question="Одобрить проверку?"
+                            danger={false}
+                            showIcon={false}
+                            onConfirm={() => change.mutate({ id: c.id, status: 'APPROVED' })}
+                            pending={change.isPending}
+                          />
+                          <ConfirmDelete
+                            label="Отклонить"
+                            question="Отклонить проверку?"
+                            showIcon={false}
+                            onConfirm={() => change.mutate({ id: c.id, status: 'REJECTED' })}
+                            pending={change.isPending}
+                          />
+                          <ConfirmDelete
+                            label="Отменить"
+                            question="Отменить проверку?"
+                            showIcon={false}
+                            onConfirm={() => change.mutate({ id: c.id, status: 'CANCELLED' })}
+                            pending={change.isPending}
+                          />
                         </>
                       ) : null}
                       {c.externalToken ? (

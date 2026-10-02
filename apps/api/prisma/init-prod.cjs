@@ -49,6 +49,7 @@ const EMAIL_TEMPLATES = [
   { code: 'REQUEST_APPROVED', subject: 'Заявка согласована', body: '<p>Заявка {{title}} согласована HR BP.</p>' },
   { code: 'REQUEST_REJECTED', subject: 'Заявка отклонена', body: '<p>Заявка {{title}} отклонена.</p>' },
   { code: 'CANDIDATE_STAGE', subject: 'Смена этапа кандидата', body: '<p>Кандидат {{name}} переведён на этап {{stage}}.</p>' },
+  { code: 'MAX_INBOUND_STAFF', subject: 'Новое сообщение в MAX', body: '<p>Кандидат {{name}} написал в MAX:</p><blockquote>{{text}}</blockquote><p><a href="{{link}}">Открыть чат</a></p>' },
   { code: 'OFFER_SENT', subject: 'Вам направлен оффер', body: '<p>Здравствуйте, {{name}}! Перейдите по ссылке: {{link}}</p>' },
   { code: 'OFFER_ACCEPTED', subject: 'Оффер принят', body: '<p>Кандидат {{name}} принял оффер.</p>' },
   { code: 'CHECK_ASSIGNED', subject: 'Назначена проверка', body: '<p>Вам назначена проверка по кандидату {{name}}.</p>' },

@@ -113,6 +113,8 @@ model User {
   visibilityProfile  VisibilityProfile? @relation(fields: [visibilityProfileId], references: [id])
   refreshTokenHash   String?
   sessionDeviceId    String?
+  /** Когда истекает текущий refresh (дубль JWT TTL для явной проверки) */
+  refreshTokenExpiresAt DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -127,6 +129,7 @@ model User {
   savedFilters       SavedFilter[]
   assignedCandidates Candidate[] @relation("CandidateAssignee")
   integrations       UserIntegration[]
+  auditEvents        AuditEvent[]
 }
 
 /** Личные подключения сотрудника (HH OAuth и т.п.) */
@@ -365,6 +368,7 @@ model Candidate {
   assessments   AssessmentAssignment[]
   tasks         Task[]
   proActionResults ProActionResult[]
+  maxMessages   MaxMessage[]
 
   @@index([phone])
   @@index([email])
@@ -709,4 +713,49 @@ model ProActionResult {
   payload     Json?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+/** Переписка MAX (вместо JSON maxThread в Candidate.extra) */
+model MaxMessage {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  /** mid из MAX или локальный out-* id */
+  externalId  String
+  text        String
+  fromBot     Boolean   @default(false)
+  attachment  Json?
+  /** Когда рекрутер прочитал входящее */
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([candidateId, externalId])
+  @@index([candidateId, createdAt])
+  @@index([candidateId, fromBot, readAt])
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail String?
+  action     String
+  entity     String
+  entityId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([actorId])
+}
+
+/** Быстрые ответы в чатах MAX */
+model ChatQuickReply {
+  id        String   @id @default(uuid())
+  text      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

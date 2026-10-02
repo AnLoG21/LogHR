@@ -4,7 +4,7 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ROLE_LABELS, SystemRole } from '@skillaz/shared';
-import { AppShell, Badge, Button, Card, Input, Modal, Select } from '@/components/ui';
+import { AppShell, Badge, Button, Card, ConfirmDelete, Input, Modal, Select } from '@/components/ui';
 import { api } from '@/lib/api';
 import { downloadXlsx, uploadXlsx } from '@/lib/export';
 import clsx from 'clsx';
@@ -145,12 +145,14 @@ function AdminInner() {
                         <Badge color={u.isActive ? 'green' : 'amber'}>{u.isActive ? 'Активен' : 'Отключён'}</Badge>
                       </td>
                       <td className="py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          onClick={() => patchUser.mutate({ id: u.id, body: { isActive: !u.isActive } })}
-                        >
-                          {u.isActive ? 'Отключить' : 'Включить'}
-                        </Button>
+                        <ConfirmDelete
+                          label={u.isActive ? 'Отключить' : 'Включить'}
+                          question={u.isActive ? 'Отключить доступ пользователю?' : 'Включить доступ пользователю?'}
+                          danger={u.isActive}
+                          showIcon={false}
+                          onConfirm={() => patchUser.mutate({ id: u.id, body: { isActive: !u.isActive } })}
+                          pending={patchUser.isPending}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -189,7 +191,9 @@ function AdminInner() {
                 {hh.data?.connected ? 'Переподключить HeadHunter' : 'Подключить HeadHunter'}
               </Button>
               {hh.data?.viaOAuth ? (
-                <Button variant="ghost" disabled={disconnectHh.isPending} onClick={() => disconnectHh.mutate()}>Отключить</Button>
+                <Button variant="ghost" disabled={disconnectHh.isPending} onClick={() => disconnectHh.mutate()}>
+                  Отключить
+                </Button>
               ) : null}
             </div>
             {hhMsg ? <div className={`text-sm mt-2 ${sp.get('hh') === 'error' ? 'text-[var(--sk-danger)]' : 'text-[var(--sk-text-success)]'}`}>{hhMsg}</div> : null}

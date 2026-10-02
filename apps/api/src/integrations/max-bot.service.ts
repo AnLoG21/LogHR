@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/guards';
 import { visibilityWhere } from '../common/visibility';
 import { StorageService } from '../storage/storage.module';
+import { NotificationsService } from '../notifications/notifications.module';
 
 const API = 'https://platform-api2.max.ru';
 
@@ -51,10 +52,18 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   private lastPollAt: string | null = null;
   private lastPollError: string | null = null;
 
-  constructor(private prisma: PrismaService, private storage: StorageService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storage: StorageService,
+    private notifications: NotificationsService,
+    private audit: AuditService,
+  ) {}
 
   onModuleInit() {
     if (!this.configured()) return;
+    void this.migrateThreadsFromExtra().catch((e) =>
+      this.logger.warn(`MAX thread migrate: ${e?.message || e}`),
+    );
     if (this.mode() === 'webhook') {
       this.ensureWebhook().catch((e) => this.logger.warn(`MAX webhook: ${e?.message || e}`));
     } else {
@@ -320,29 +329,84 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** Атомарно добавляет сообщение; пропускает дубликат по id (mid) */
+  /** Атомарно добавляет сообщение; пропускает дубликат по externalId */
   private async pushThread(
     candidateId: string,
     entry: MaxThreadMsg,
   ): Promise<{ added: boolean }> {
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      await this.prisma.maxMessage.create({
+        data: {
+          candidateId,
+          externalId: entry.id,
+          text: entry.text,
+          fromBot: entry.fromBot,
+          attachment: entry.attachment ? (entry.attachment as any) : undefined,
+          createdAt: entry.at ? new Date(entry.at) : undefined,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') return { added: false };
+      throw e;
+    }
+
+    // совместимость: счётчик unread + last inbound в extra
+    await this.prisma.$transaction(async (tx) => {
       const c = await tx.candidate.findUnique({ where: { id: candidateId } });
-      if (!c) return { added: false };
+      if (!c) return;
       const extra = this.extraOf(c);
-      const thread = extra.maxThread || [];
-      if (thread.some((m) => m.id === entry.id)) return { added: false };
-      const nextThread = [...thread, entry].slice(-80);
-      const next: MaxExtra = { ...extra, maxThread: nextThread };
+      const next: MaxExtra = { ...extra };
       if (!entry.fromBot) {
         next.maxUnread = (extra.maxUnread || 0) + 1;
         next.maxLastInbound = { id: entry.id, text: entry.text, at: entry.at };
       }
+      // больше не пишем maxThread в JSON
+      if (next.maxThread) delete next.maxThread;
       await tx.candidate.update({
         where: { id: candidateId },
         data: { extra: next as Prisma.InputJsonValue },
       });
-      return { added: true };
     });
+    return { added: true };
+  }
+
+  /** Одноразовая миграция старых тредов из Candidate.extra.maxThread */
+  private async migrateThreadsFromExtra() {
+    const rows = await this.prisma.candidate.findMany({
+      where: { isDepersonalized: false },
+      select: { id: true, extra: true },
+      take: 5000,
+    });
+    let migrated = 0;
+    for (const c of rows) {
+      const extra = this.extraOf(c);
+      const thread = extra.maxThread || [];
+      if (!thread.length) continue;
+      for (const m of thread) {
+        if (!m?.id) continue;
+        try {
+          await this.prisma.maxMessage.create({
+            data: {
+              candidateId: c.id,
+              externalId: String(m.id),
+              text: String(m.text || ''),
+              fromBot: !!m.fromBot,
+              attachment: (m as any).attachment || undefined,
+              createdAt: m.at ? new Date(m.at) : undefined,
+            },
+          });
+          migrated += 1;
+        } catch {
+          /* duplicate */
+        }
+      }
+      const { maxThread: _drop, ...rest } = extra;
+      await this.prisma.candidate.update({
+        where: { id: c.id },
+        data: { extra: rest as Prisma.InputJsonValue },
+      });
+    }
+    if (migrated) this.logger.log(`MAX migrated ${migrated} messages from Candidate.extra`);
   }
 
   private mimeToUploadType(mime?: string, fileName?: string): MaxAttachmentMeta['type'] {
@@ -534,6 +598,23 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       orderBy: { updatedAt: 'desc' },
       take: 2000,
     });
+    const ids = list.map((c) => c.id);
+    const lastByCand = new Map<string, { id: string; text: string; fromBot: boolean; at: string }>();
+    if (ids.length) {
+      const lasts = await this.prisma.maxMessage.findMany({
+        where: { candidateId: { in: ids } },
+        orderBy: { createdAt: 'desc' },
+        distinct: ['candidateId'],
+      });
+      for (const row of lasts) {
+        lastByCand.set(row.candidateId, {
+          id: row.externalId,
+          text: row.text,
+          fromBot: row.fromBot,
+          at: row.createdAt.toISOString(),
+        });
+      }
+    }
     const items: Array<{
       candidateId: string;
       name: string;
@@ -545,13 +626,8 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     }> = [];
     for (const c of list) {
       const extra = this.extraOf(c);
-      const thread = extra.maxThread || [];
-      if (!extra.maxUserId && !thread.length) continue;
-      const last = thread.length
-        ? thread[thread.length - 1]
-        : extra.maxLastInbound
-          ? { id: extra.maxLastInbound.id, text: extra.maxLastInbound.text, fromBot: false, at: extra.maxLastInbound.at }
-          : null;
+      const last = lastByCand.get(c.id) || null;
+      if (!extra.maxUserId && !last) continue;
       items.push({
         candidateId: c.id,
         name: this.nameOf(c),
@@ -577,6 +653,10 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
 
   async markRead(candidateId: string, user?: AuthUser) {
     if (user) await this.assertCandidateAccess(candidateId, user);
+    await this.prisma.maxMessage.updateMany({
+      where: { candidateId, fromBot: false, readAt: null },
+      data: { readAt: new Date() },
+    });
     return this.prisma.$transaction(async (tx) => {
       const c = await tx.candidate.findUnique({ where: { id: candidateId } });
       if (!c) return { ok: false };
@@ -599,6 +679,10 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     for (const c of list) {
       const extra = this.extraOf(c);
       if (!extra.maxUnread) continue;
+      await this.prisma.maxMessage.updateMany({
+        where: { candidateId: c.id, fromBot: false, readAt: null },
+        data: { readAt: new Date() },
+      });
       await this.prisma.candidate.update({
         where: { id: c.id },
         data: { extra: { ...extra, maxUnread: 0 } as Prisma.InputJsonValue },
@@ -700,6 +784,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
                 data: { candidateId: candidate.id, body: commentBody },
               });
             }
+            void this.notifyStaffInbound(candidate.id, bodyText || savedAtt?.name || 'вложение').catch(() => undefined);
           }
         }
         return { ok: true, candidateId: candidate.id };
@@ -739,6 +824,19 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       };
     }
     const linked = !!extra.maxUserId;
+    const rows = await this.prisma.maxMessage.findMany({
+      where: { candidateId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const messages = rows.map((m) => ({
+      id: m.externalId,
+      text: m.text,
+      fromBot: m.fromBot,
+      at: m.createdAt.toISOString(),
+      readAt: m.readAt?.toISOString() || null,
+      attachment: m.attachment || undefined,
+    }));
     return {
       configured: true,
       linked,
@@ -746,7 +844,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       invite,
       share,
       botUsername: this.botUsername(),
-      messages: (extra.maxThread || []).slice().reverse(),
+      messages,
       note: linked
         ? 'Переписка через бота MAX связана с кандидатом'
         : 'Отправьте кандидату ссылку-приглашение. Когда он откроет бота, переписка появится здесь.',
@@ -840,7 +938,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     const label = type === 'image' ? 'Фото' : type === 'video' ? 'Видео' : type === 'audio' ? 'Аудио' : 'Файл';
     const text = caption?.trim() || `${label}: ${fileName}`;
     await this.pushThread(candidateId, {
-      id: `out-file-${user.id}-${Date.now()}`,
+      id: `out-file-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       text,
       fromBot: true,
       at: new Date().toISOString(),
@@ -856,6 +954,67 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       },
     });
     return { ok: true };
+  }
+
+  private async notifyStaffInbound(candidateId: string, text: string) {
+    const c = await this.prisma.candidate.findUnique({
+      where: { id: candidateId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        assignee: { select: { email: true } },
+        hiringRequest: { select: { recruiter: { select: { email: true } } } },
+      },
+    });
+    if (!c) return;
+    const emails = new Set<string>();
+    if (c.assignee?.email) emails.add(c.assignee.email);
+    if (c.hiringRequest?.recruiter?.email) emails.add(c.hiringRequest.recruiter.email);
+    if (!emails.size) {
+      const admins = await this.prisma.user.findMany({
+        where: { isActive: true, role: { in: ['ADMIN', 'RECRUITMENT_LEAD'] } },
+        select: { email: true },
+        take: 5,
+      });
+      for (const a of admins) emails.add(a.email);
+    }
+    const name = [c.lastName, c.firstName].filter(Boolean).join(' ');
+    const base = (process.env.PUBLIC_URL || process.env.WEB_URL || '').replace(/\/$/, '');
+    const link = `${base}/messengers?chat=${c.id}`;
+    for (const to of emails) {
+      await this.notifications.sendEmail(to, 'MAX_INBOUND_STAFF', {
+        name,
+        text: text.slice(0, 500),
+        link,
+      });
+    }
+  }
+
+  async listQuickReplies() {
+    return this.prisma.chatQuickReply.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async sendFiles(
+    candidateId: string,
+    files: Array<{ buffer: Buffer; originalname?: string; mimetype?: string; size?: number }>,
+    user: AuthUser,
+    caption?: string,
+  ) {
+    if (!files?.length) return { ok: false, note: 'Выберите файлы' };
+    const results: Array<{ name?: string; ok: boolean; note?: string }> = [];
+    let first = true;
+    for (const file of files.slice(0, 5)) {
+      const res = await this.sendFile(candidateId, file, user, first ? caption : undefined);
+      results.push({ name: file.originalname, ok: !!res.ok, note: (res as any).note });
+      first = false;
+      if (!res.ok && results.length === 1) return res;
+    }
+    const failed = results.filter((r) => !r.ok);
+    return { ok: failed.length === 0, results, note: failed[0]?.note };
   }
 
   private async sendText(userId: number, text: string) {

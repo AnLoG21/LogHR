@@ -88,6 +88,11 @@ function MessengersInner() {
     enabled: !!selectedId && tab === 'max',
     refetchInterval: 5_000,
   });
+  const quickReplies = useQuery({
+    queryKey: ['max-quick-replies'],
+    queryFn: () => api<Array<{ id: string; text: string }>>('/integrations/max/quick-replies'),
+    enabled: tab === 'max',
+  });
 
   const send = useMutation({
     mutationFn: () =>
@@ -107,9 +112,9 @@ function MessengersInner() {
   });
 
   const sendFile = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const fd = new FormData();
-      fd.append('file', file);
+      for (const f of files.slice(0, 5)) fd.append('file', f);
       if (text.trim()) fd.append('text', text.trim());
       return api(`/integrations/max-chat/${selectedId}/file`, { method: 'POST', body: fd });
     },
@@ -320,6 +325,24 @@ function MessengersInner() {
                   <div ref={bottomRef} />
                 </div>
 
+                {chat.data?.linked && (quickReplies.data || []).length ? (
+                  <div className="tg-quick-replies">
+                    {(quickReplies.data || []).map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        className="tg-quick-chip"
+                        disabled={busy}
+                        onClick={() => {
+                          setText(q.text);
+                        }}
+                      >
+                        {q.text.length > 42 ? `${q.text.slice(0, 42)}…` : q.text}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
                 <form
                   className="tg-composer"
                   onSubmit={(e) => {
@@ -331,13 +354,14 @@ function MessengersInner() {
                   <input
                     ref={fileRef}
                     type="file"
+                    multiple
                     className="hidden"
                     accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
                     onChange={(e) => {
-                      const f = e.target.files?.[0];
+                      const list = Array.from(e.target.files || []);
                       e.target.value = '';
-                      if (!f || !chat.data?.linked || busy) return;
-                      sendFile.mutate(f);
+                      if (!list.length || !chat.data?.linked || busy) return;
+                      sendFile.mutate(list);
                     }}
                   />
                   <button

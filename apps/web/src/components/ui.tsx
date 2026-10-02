@@ -499,12 +499,16 @@ export function ConfirmDelete({
   label = 'Удалить',
   question = 'Удалить?',
   iconOnly,
+  danger = true,
+  showIcon = true,
 }: {
   onConfirm: () => void;
   pending?: boolean;
   label?: string;
   question?: string;
   iconOnly?: boolean;
+  danger?: boolean;
+  showIcon?: boolean;
 }) {
   const [asking, setAsking] = useState(false);
   if (asking) {
@@ -515,7 +519,7 @@ export function ConfirmDelete({
         <button
           type="button"
           className="sk-btn"
-          style={{ background: 'var(--sk-danger)', color: '#fff' }}
+          style={danger ? { background: 'var(--sk-danger)', color: '#fff' } : undefined}
           disabled={pending}
           onClick={() => {
             onConfirm();
@@ -528,12 +532,12 @@ export function ConfirmDelete({
     );
   }
   return iconOnly ? (
-    <button type="button" className="sk-btn sk-btn-icon" title={label} aria-label={label} onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
+    <button type="button" className="sk-btn sk-btn-icon" title={label} aria-label={label} onClick={() => setAsking(true)} style={danger ? { color: 'var(--sk-danger)' } : undefined}>
       <Icon name="trash" />
     </button>
   ) : (
-    <button type="button" className="sk-btn sk-btn-outline" onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
-      <Icon name="trash" /> {label}
+    <button type="button" className="sk-btn sk-btn-outline" onClick={() => setAsking(true)} style={danger ? { color: 'var(--sk-danger)' } : undefined}>
+      {showIcon ? <Icon name="trash" /> : null} {label}
     </button>
   );
 }
