@@ -9,7 +9,7 @@
   --sk-panel: #ffffff;
   --sk-ink: #152033;
   --sk-muted: #5f6b7a;
-  --sk-placeholder: #6b7380;
+  --sk-placeholder: #606874;
   --sk-label: #4a5568;
   --sk-line: #e2e6ee;
   --sk-line-strong: #b4bcc8;
@@ -444,11 +444,12 @@ html[data-theme="dark"] .bg-white { background-color: var(--sk-panel) !important
   }
   .login-eye {
     position: absolute;
-    right: 4px;
+    right: 0;
     top: 50%;
     transform: translateY(-50%);
-    width: 36px;
-    height: 36px;
+    width: var(--sk-hit);
+    height: var(--sk-hit);
+    min-width: var(--sk-hit);
     border: 0;
     border-radius: var(--sk-radius);
     background: transparent;
