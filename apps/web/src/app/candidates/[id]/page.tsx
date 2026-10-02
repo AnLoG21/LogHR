@@ -922,6 +922,7 @@ function MaxChatBlock({ candidateId }: { candidateId: string }) {
   const chat = useQuery({
     queryKey: ['max-chat', candidateId],
     queryFn: () => api<any>(`/integrations/max-chat/${candidateId}`),
+    refetchInterval: 10_000,
   });
   const send = useMutation({
     mutationFn: () =>

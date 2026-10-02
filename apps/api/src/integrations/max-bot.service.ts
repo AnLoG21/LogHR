@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -13,14 +13,96 @@ type MaxExtra = {
 };
 
 @Injectable()
-export class MaxBotService implements OnModuleInit {
+export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MaxBotService.name);
+  private polling = false;
+  private stopped = false;
+  private marker: number | undefined;
+  private lastPollAt: string | null = null;
+  private lastPollError: string | null = null;
 
   constructor(private prisma: PrismaService) {}
 
   onModuleInit() {
-    // Fire-and-forget webhook registration
-    this.ensureWebhook().catch((e) => this.logger.warn(`MAX webhook: ${e?.message || e}`));
+    if (!this.configured()) return;
+    if (this.mode() === 'webhook') {
+      this.ensureWebhook().catch((e) => this.logger.warn(`MAX webhook: ${e?.message || e}`));
+    } else {
+      this.startPolling().catch((e) => this.logger.warn(`MAX polling: ${e?.message || e}`));
+    }
+  }
+
+  onModuleDestroy() {
+    this.stopped = true;
+  }
+
+  /** polling — сервер сам забирает сообщения (работает без входящего доступа из интернета) */
+  mode(): 'polling' | 'webhook' {
+    return process.env.MAX_DELIVERY === 'webhook' ? 'webhook' : 'polling';
+  }
+
+  private async startPolling() {
+    if (this.polling) return;
+    this.polling = true;
+    await this.dropSubscriptions();
+    await this.prisma.integrationStatus
+      .upsert({
+        where: { code: 'MAX' },
+        update: { configured: true, name: 'MAX Мессенджер' },
+        create: { code: 'MAX', name: 'MAX Мессенджер', configured: true },
+      })
+      .catch(() => undefined);
+    this.logger.log('MAX long polling started');
+    void this.pollLoop();
+  }
+
+  private async dropSubscriptions() {
+    try {
+      const res = await fetch(`${API}/subscriptions`, { headers: this.headers() });
+      const data: any = await res.json().catch(() => ({}));
+      for (const s of data?.subscriptions || []) {
+        if (!s?.url) continue;
+        await fetch(`${API}/subscriptions?url=${encodeURIComponent(s.url)}`, {
+          method: 'DELETE',
+          headers: this.headers(),
+        }).catch(() => undefined);
+      }
+    } catch (e: any) {
+      this.logger.warn(`MAX unsubscribe: ${e?.message || e}`);
+    }
+  }
+
+  private async pollLoop() {
+    while (!this.stopped) {
+      try {
+        const params = new URLSearchParams({ limit: '100', timeout: '25', types: 'message_created,bot_started' });
+        if (this.marker != null) params.set('marker', String(this.marker));
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 40_000);
+        const res = await fetch(`${API}/updates?${params}`, { headers: this.headers(), signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) {
+          const t = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status} ${t.slice(0, 150)}`);
+        }
+        const data: any = await res.json();
+        if (data?.marker != null) this.marker = Number(data.marker);
+        for (const u of data?.updates || []) {
+          try {
+            await this.processUpdate(u);
+          } catch (e: any) {
+            this.logger.warn(`MAX update failed: ${e?.message || e}`);
+          }
+        }
+        this.lastPollAt = new Date().toISOString();
+        this.lastPollError = null;
+      } catch (e: any) {
+        if (this.stopped) break;
+        this.lastPollError = e?.name === 'AbortError' ? null : String(e?.message || e);
+        if (this.lastPollError) this.logger.warn(`MAX poll: ${this.lastPollError}`);
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
+    }
   }
 
   configured() {
@@ -58,9 +140,16 @@ export class MaxBotService implements OnModuleInit {
     return {
       configured: this.configured(),
       botUsername: this.botUsername() || null,
+      mode: this.mode(),
       webhookUrl: this.publicBase() ? `${this.publicBase()}/api/integrations/max/webhook` : null,
+      lastPollAt: this.lastPollAt,
+      lastPollError: this.lastPollError,
       note: this.configured()
-        ? 'Бот MAX подключён — кандидату отправьте ссылку-приглашение из карточки'
+        ? this.mode() === 'polling'
+          ? this.lastPollError
+            ? `Бот подключён, но не удаётся получить сообщения: ${this.lastPollError}`
+            : 'Бот MAX подключён — сообщения забираются автоматически'
+          : 'Бот MAX подключён (webhook) — кандидату отправьте ссылку-приглашение из карточки'
         : 'Задайте MAX_BOT_TOKEN и MAX_BOT_USERNAME в настройках сервера (платформа dev.max.ru)',
     };
   }
@@ -163,6 +252,10 @@ export class MaxBotService implements OnModuleInit {
     if (expected && secretHeader !== expected) {
       return { ok: false, error: 'invalid_secret' };
     }
+    return this.processUpdate(update);
+  }
+
+  private async processUpdate(update: any) {
     const type = update?.update_type || update?.updateType;
     const user = update?.user || update?.message?.sender || update?.message?.recipient;
     const userId = Number(user?.user_id || user?.userId || 0) || undefined;
@@ -195,6 +288,7 @@ export class MaxBotService implements OnModuleInit {
 
     if (type === 'message_created') {
       const msg = update?.message;
+      if (msg?.sender?.is_bot) return { ok: true, ignored: 'own' };
       const text = String(msg?.body?.text || msg?.text || '').trim();
       const contactPhone =
         msg?.body?.attachments?.find?.((a: any) => a.type === 'contact')?.payload?.vcf_info ||
@@ -220,6 +314,13 @@ export class MaxBotService implements OnModuleInit {
         }
         return { ok: true, candidateId: candidate.id };
       }
+      if (userId) {
+        await this.sendText(
+          userId,
+          'Чтобы рекрутер увидел ваше сообщение, откройте персональную ссылку, которую вам прислали, и нажмите «Начать».',
+        );
+      }
+      this.logger.log(`MAX message from unlinked user ${userId || '?'}`);
       return { ok: true, unmatched: true };
     }
 
