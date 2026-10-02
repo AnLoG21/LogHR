@@ -100,6 +100,8 @@ function Icon({ name, className }: { name: string; className?: string }) {
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M6 6l12 12M18 6L6 18" /></svg>;
     case 'link':
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg>;
+    case 'bell':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
     default:
       return <span className={c} />;
   }
@@ -168,16 +170,17 @@ export function AppShell({
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
-  const maxInbox = useQuery({
-    queryKey: ['max-inbox'],
-    queryFn: () => api<{ unread: number; items: MaxInboxItem[] }>('/integrations/max/inbox'),
+  const inboxHub = useQuery({
+    queryKey: ['inbox-hub'],
+    queryFn: () => api<HubResponse>('/inbox/hub'),
     enabled: !!user,
-    refetchInterval: 8_000,
-    staleTime: 4_000,
+    refetchInterval: 12_000,
+    staleTime: 6_000,
   });
   const badges: Record<string, number> = {
     reserveUnviewed: reserveStats.data?.unviewed || 0,
-    messengersUnread: maxInbox.data?.unread || 0,
+    messengersUnread: inboxHub.data?.maxUnread || 0,
+    tasksOpen: inboxHub.data?.tasksOpen || 0,
   };
 
   const menuSearchRef = useRef<HTMLInputElement>(null);
@@ -237,6 +240,7 @@ export function AppShell({
           <BrandMark />
         </Link>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <NotificationBell items={inboxHub.data?.items || []} />
           <Link href="/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }} title="Мой профиль">
             <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--sk-avatar)', display: 'grid', placeItems: 'center', color: 'var(--sk-muted)' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4" /><path d="M4 20a8 8 0 0 1 16 0" /></svg>
@@ -366,22 +370,160 @@ export function AppShell({
           </div>
         </main>
       </div>
-      <MaxMessageToasts items={maxInbox.data?.items || []} />
+      <HubToasts items={inboxHub.data?.items || []} />
     </div>
   );
 }
 
-type MaxInboxItem = {
-  candidateId: string;
-  name: string;
+type HubItemKind = 'max' | 'task' | 'stage';
+
+type HubItem = {
+  id: string;
+  kind: HubItemKind;
+  title: string;
   text: string;
   at: string;
-  id: string;
-  unread: number;
+  href: string;
 };
 
-function MaxMessageToasts({ items }: { items: MaxInboxItem[] }) {
-  const [toasts, setToasts] = useState<Array<MaxInboxItem & { key: string }>>([]);
+type HubResponse = {
+  total: number;
+  maxUnread: number;
+  tasksOpen: number;
+  items: HubItem[];
+};
+
+const HUB_SEEN_KEY = 'loghr-hub-seen';
+
+function readHubSeen(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(HUB_SEEN_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markHubSeen(ids: string[]) {
+  if (!ids.length || typeof window === 'undefined') return;
+  const s = readHubSeen();
+  for (const id of ids) s.add(id);
+  localStorage.setItem(HUB_SEEN_KEY, JSON.stringify([...s].slice(-500)));
+}
+
+function hubKindLabel(kind: HubItemKind) {
+  if (kind === 'max') return 'MAX';
+  if (kind === 'task') return 'Задача';
+  return 'Этап';
+}
+
+function formatHubWhen(at: string) {
+  try {
+    const d = new Date(at);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  } catch {
+    return '';
+  }
+}
+
+function NotificationBell({ items }: { items: HubItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [seenTick, setSeenTick] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const unseen = useMemo(() => {
+    void seenTick;
+    const seen = readHubSeen();
+    return items.filter((i) => !seen.has(i.id));
+  }, [items, seenTick]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const badge = unseen.length;
+
+  return (
+    <div className="notif-bell-wrap" ref={rootRef}>
+      <button
+        type="button"
+        className="sk-btn sk-btn-icon notif-bell-btn"
+        aria-label="Уведомления"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="bell" />
+        {badge > 0 ? (
+          <span className="notif-bell-badge" aria-hidden>
+            {badge > 99 ? '99+' : badge}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="notif-bell-panel" role="dialog" aria-label="Лента уведомлений">
+          <div className="notif-bell-head">
+            <span>Уведомления</span>
+            {items.length ? (
+              <button
+                type="button"
+                className="notif-bell-clear"
+                onClick={() => {
+                  markHubSeen(items.map((i) => i.id));
+                  setSeenTick((n) => n + 1);
+                }}
+              >
+                Скрыть все
+              </button>
+            ) : null}
+          </div>
+          <div className="notif-bell-list">
+            {!items.length ? (
+              <div className="notif-bell-empty">Нет новых событий</div>
+            ) : (
+              items.slice(0, 25).map((i) => {
+                const isNew = !readHubSeen().has(i.id);
+                return (
+                  <Link
+                    key={i.id}
+                    href={i.href}
+                    className={clsx('notif-bell-item', isNew && 'is-new')}
+                    onClick={() => {
+                      markHubSeen([i.id]);
+                      setSeenTick((n) => n + 1);
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="notif-bell-item-top">
+                      <span className="notif-bell-item-title">{i.title}</span>
+                      <span className="notif-bell-item-ch">{hubKindLabel(i.kind)}</span>
+                    </div>
+                    <div className="notif-bell-item-text">{i.text}</div>
+                    <div className="notif-bell-item-when">{formatHubWhen(i.at)}</div>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HubToasts({ items }: { items: HubItem[] }) {
+  const [toasts, setToasts] = useState<Array<HubItem & { key: string }>>([]);
   const seenRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -392,12 +534,12 @@ function MaxMessageToasts({ items }: { items: MaxInboxItem[] }) {
     const fresh = items.filter((i) => !seenRef.current!.has(i.id));
     if (!fresh.length) return;
     for (const i of fresh) seenRef.current.add(i.id);
-    const batch = fresh.map((i) => ({ ...i, key: `${i.id}-${Date.now()}` }));
+    const batch = fresh.slice(0, 3).map((i) => ({ ...i, key: `${i.id}-${Date.now()}-${Math.random()}` }));
     setToasts((prev) => [...prev, ...batch].slice(-4));
     for (const b of batch) {
       window.setTimeout(() => {
         setToasts((prev) => prev.filter((p) => p.key !== b.key));
-      }, 3000);
+      }, 4000);
     }
   }, [items]);
 
@@ -405,10 +547,10 @@ function MaxMessageToasts({ items }: { items: MaxInboxItem[] }) {
   return (
     <div className="msg-toast-stack" aria-live="polite">
       {toasts.map((t) => (
-        <Link key={t.key} href={`/messengers?chat=${t.candidateId}`} className="msg-toast">
-          <div className="msg-toast-from">{t.name || 'Кандидат'}</div>
+        <Link key={t.key} href={t.href} className="msg-toast">
+          <div className="msg-toast-from">{t.title}</div>
           <div className="msg-toast-text">{t.text}</div>
-          <div className="msg-toast-ch">MAX</div>
+          <div className="msg-toast-ch">{hubKindLabel(t.kind)}</div>
         </Link>
       ))}
     </div>

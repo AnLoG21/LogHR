@@ -1,22 +1,20 @@
-import { Injectable, UnauthorizedException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.module';
-
-type Attempt = { count: number; resetAt: number; lockedUntil?: number };
+import { LoginRateLimitService } from './login-rate-limit.service';
 
 @Injectable()
 export class AuthService {
-  private loginAttempts = new Map<string, Attempt>();
-
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
     private audit: AuditService,
+    private loginRateLimit: LoginRateLimitService,
   ) {}
 
   private refreshTtlMs() {
@@ -31,49 +29,16 @@ export class AuthService {
     return n * 24 * 60 * 60 * 1000;
   }
 
-  private rateKey(email: string, ip?: string) {
-    return `${(ip || 'unknown').slice(0, 64)}:${email.toLowerCase()}`;
-  }
-
-  private assertLoginAllowed(email: string, ip?: string) {
-    const key = this.rateKey(email, ip);
-    const now = Date.now();
-    const row = this.loginAttempts.get(key);
-    if (row?.lockedUntil && row.lockedUntil > now) {
-      const sec = Math.ceil((row.lockedUntil - now) / 1000);
-      throw new HttpException(`Слишком много попыток входа. Повторите через ${sec} с.`, HttpStatus.TOO_MANY_REQUESTS);
-    }
-    if (row && row.resetAt < now) this.loginAttempts.delete(key);
-  }
-
-  private recordLoginFailure(email: string, ip?: string) {
-    const key = this.rateKey(email, ip);
-    const now = Date.now();
-    const max = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
-    const windowMs = Number(process.env.LOGIN_WINDOW_MS || 15 * 60 * 1000);
-    const lockMs = Number(process.env.LOGIN_LOCK_MS || 15 * 60 * 1000);
-    const prev = this.loginAttempts.get(key);
-    const base = prev && prev.resetAt > now ? prev : { count: 0, resetAt: now + windowMs };
-    const count = base.count + 1;
-    const next: Attempt = { count, resetAt: base.resetAt };
-    if (count >= max) next.lockedUntil = now + lockMs;
-    this.loginAttempts.set(key, next);
-  }
-
-  private clearLoginFailures(email: string, ip?: string) {
-    this.loginAttempts.delete(this.rateKey(email, ip));
-  }
-
   async login(email: string, password: string, deviceId?: string, ip?: string) {
-    this.assertLoginAllowed(email, ip);
+    await this.loginRateLimit.assertAllowed(email, ip);
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user || !user.isActive) {
-      this.recordLoginFailure(email, ip);
+      await this.loginRateLimit.recordFailure(email, ip);
       throw new UnauthorizedException('Неверный логин или пароль');
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
-      this.recordLoginFailure(email, ip);
+      await this.loginRateLimit.recordFailure(email, ip);
       await this.audit.log({
         actorEmail: email.toLowerCase(),
         action: 'login_failed',
@@ -84,7 +49,7 @@ export class AuthService {
       throw new UnauthorizedException('Неверный логин или пароль');
     }
 
-    this.clearLoginFailures(email, ip);
+    await this.loginRateLimit.clear(email, ip);
     const sessionDeviceId = deviceId || randomUUID();
     const tokens = await this.issueTokens(user.id, user.email, user.role);
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);

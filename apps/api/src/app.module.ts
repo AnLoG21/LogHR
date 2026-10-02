@@ -32,6 +32,7 @@ import { AiModule } from './ai/ai.module';
 import { VisibilityModule } from './visibility/visibility.module';
 import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { AuditModule } from './audit/audit.module';
+import { InboxModule } from './inbox/inbox.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -69,6 +70,7 @@ import { HealthController } from './health.controller';
     AiModule,
     VisibilityModule,
     CustomFieldsModule,
+    InboxModule,
   ],
   controllers: [HealthController],
 })

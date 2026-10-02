@@ -278,7 +278,7 @@ export type NavItem = {
   icon: string;
   roles: readonly SystemRole[] | SystemRole[];
   /** Ключ счётчика непросмотренных в шапке меню */
-  badge?: 'reserveUnviewed' | 'messengersUnread';
+  badge?: 'reserveUnviewed' | 'messengersUnread' | 'tasksOpen';
 };
 
 export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
@@ -293,7 +293,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: '/org-units', label: 'Орг единицы', icon: 'building', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD] },
       { href: '/demands', label: 'Потребности', icon: 'demand', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD, SystemRole.HIRING_MANAGER] },
       { href: '/profiles', label: 'Профили кандидатов', icon: 'profile', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD] },
-      { href: '/tasks', label: 'Мои задачи', icon: 'check', roles: Object.values(SystemRole) },
+      { href: '/tasks', label: 'Мои задачи', icon: 'check', roles: Object.values(SystemRole), badge: 'tasksOpen' },
     ],
   },
   {

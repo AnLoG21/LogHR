@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthService } from './auth.service';
+import { LoginRateLimitService } from './login-rate-limit.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard, RolesGuard } from '../common/guards';
@@ -25,6 +26,7 @@ import { AuditModule } from '../audit/audit.module';
   controllers: [AuthController],
   providers: [
     AuthService,
+    LoginRateLimitService,
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
