@@ -682,6 +682,24 @@ export class CandidatesService {
     return this.prisma.candidate.update({ where: { id }, data });
   }
 
+  /** Полное удаление карточки (тестовые / ошибочно созданные). Задачи отвязываются, файлы удаляются. */
+  async remove(id: string) {
+    await this.ensureExists(id);
+    const atts = await this.prisma.attachment.findMany({ where: { candidateId: id } });
+    for (const a of atts) {
+      try {
+        await this.storage.deleteByUrl(a.url);
+      } catch {
+        /* файл мог уже отсутствовать */
+      }
+    }
+    await this.prisma.$transaction([
+      this.prisma.task.updateMany({ where: { candidateId: id }, data: { candidateId: null } }),
+      this.prisma.candidate.delete({ where: { id } }),
+    ]);
+    return { ok: true };
+  }
+
   async importResumeText(id: string, text: string, fileName?: string) {
     await this.ensureExists(id);
     await this.prisma.candidate.update({
@@ -908,6 +926,12 @@ export class CandidatesController {
   @Post(':id/depersonalize')
   depersonalize(@Param('id') id: string, @Body('fields') fields: string[]) {
     return this.service.depersonalize(id, fields || ['phone', 'email', 'address']);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER, SystemRole.HR_BP)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 
   @Post(':id/pdn-consent')

@@ -3,7 +3,7 @@
 import { Suspense, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Badge, Button, Card, Empty, Input, Modal, Select } from '@/components/ui';
+import { AppShell, Badge, Button, Card, ConfirmDelete, Empty, Input, Modal, Select } from '@/components/ui';
 import { TokenField, TokenPalette, VACANCY_TOKENS, humanizeTemplate, type TokenFieldHandle } from '@/components/template-composer';
 import { api } from '@/lib/api';
 import clsx from 'clsx';
@@ -76,6 +76,10 @@ function PublicationsInner() {
       api(`/publications/auto-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['auto-rules'] }),
   });
+  const removeAuto = useMutation({
+    mutationFn: (id: string) => api(`/publications/auto-rules/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['auto-rules'] }),
+  });
 
   const search = useMutation({
     mutationFn: () => api('/job-boards/search', { method: 'POST', body: JSON.stringify({ board, text: searchText.trim() || ' ' }) }),
@@ -123,6 +127,10 @@ function PublicationsInner() {
       api(`/publications/templates/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pub-templates'] }),
   });
+  const removeTpl = useMutation({
+    mutationFn: (id: string) => api(`/publications/templates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pub-templates'] }),
+  });
 
   function openCreate() {
     setEditId(null);
@@ -157,7 +165,7 @@ function PublicationsInner() {
 
       {tab === 'auto' ? (
         <div className="space-y-4">
-          <Card className="p-4 grid md:grid-cols-5 gap-3 items-end">
+          <Card className="p-4 grid md:grid-cols-3 xl:grid-cols-6 gap-3 items-end">
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Вакансия</div>
               <Select value={autoForm.vacancyId} onChange={(e) => setAutoForm({ ...autoForm, vacancyId: e.target.value })}>
@@ -180,6 +188,15 @@ function PublicationsInner() {
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Регион (подсказка)</div>
               <Input value={autoForm.regionHint} onChange={(e) => setAutoForm({ ...autoForm, regionHint: e.target.value })} placeholder="из города вакансии" />
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] mb-1">Шаблон</div>
+              <Select value={autoForm.templateId} onChange={(e) => setAutoForm({ ...autoForm, templateId: e.target.value })}>
+                <option value="">Без шаблона</option>
+                {(templates.data || []).filter((t: any) => t.isActive).map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </Select>
             </div>
             <div className="flex gap-2">
               <Button disabled={!autoForm.vacancyId || createAuto.isPending} onClick={() => createAuto.mutate()}>Добавить</Button>
@@ -207,6 +224,7 @@ function PublicationsInner() {
                   <Button variant="ghost" onClick={() => toggleAuto.mutate({ id: r.id, isActive: !r.isActive })}>
                     {r.isActive ? 'Выкл.' : 'Вкл.'}
                   </Button>
+                  <ConfirmDelete question="Удалить правило авторазмещения?" onConfirm={() => removeAuto.mutate(r.id)} pending={removeAuto.isPending} />
                 </div>
               </div>
             ))}
@@ -286,6 +304,7 @@ function PublicationsInner() {
                     >
                       {t.isActive ? 'Выкл.' : 'Вкл.'}
                     </Button>
+                    <ConfirmDelete question="Удалить шаблон?" onConfirm={() => removeTpl.mutate(t.id)} pending={removeTpl.isPending} />
                   </div>
                 </div>
               );

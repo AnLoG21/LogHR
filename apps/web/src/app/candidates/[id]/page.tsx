@@ -1,10 +1,10 @@
 'use client';
 
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AppShell, Button, Card, Icon, Input, Modal, Select, Textarea } from '@/components/ui';
+import { AppShell, Button, Card, ConfirmDelete, Icon, Input, Modal, Select, Textarea } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import clsx from 'clsx';
 import { useAuth } from '@/lib/auth';
@@ -16,6 +16,7 @@ import {
   JOB_BOARD_LABELS,
   OFFER_STATUS_LABELS,
   ruLabel,
+  SystemRole,
 } from '@skillaz/shared';
 
 const STATUS_FORMS = [
@@ -37,8 +38,14 @@ export default function CandidateDetailPage() {
 function CandidateDetailInner() {
   const { id } = useParams<{ id: string }>();
   const sp = useSearchParams();
+  const router = useRouter();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const canDelete = [SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER, SystemRole.HR_BP].includes(
+    user?.role as SystemRole,
+  );
+  const canPdn = [SystemRole.ADMIN, SystemRole.HR_BP].includes(user?.role as SystemRole);
+  const resumeFileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState(
     sp.get('tab') === 'comments' || sp.get('tab') === 'history'
       ? 'history'
@@ -156,6 +163,54 @@ function CandidateDetailInner() {
       }
     },
   });
+
+  const removeCandidate = useMutation({
+    mutationFn: () => api(`/candidates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['candidates'] });
+      router.push('/candidates');
+    },
+  });
+
+  const uploadResume = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return api(`/candidates/${id}/resume`, { method: 'POST', body: fd });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['candidate', id] });
+      qc.invalidateQueries({ queryKey: ['candidate-ai', id] });
+    },
+  });
+
+  const saveResumeText = useMutation({
+    mutationFn: (text: string) =>
+      api(`/candidates/${id}/resume`, { method: 'POST', body: JSON.stringify({ text }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
+  });
+
+  const pdnConsent = useMutation({
+    mutationFn: () => api(`/candidates/${id}/pdn-consent`, { method: 'POST', body: '{}' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
+  });
+
+  const depersonalize = useMutation({
+    mutationFn: () =>
+      api(`/candidates/${id}/depersonalize`, {
+        method: 'POST',
+        body: JSON.stringify({ fields: ['phone', 'email', 'address', 'about', 'resumeText'] }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['candidate', id] });
+      qc.invalidateQueries({ queryKey: ['candidates'] });
+    },
+  });
+
+  const [resumeDraft, setResumeDraft] = useState('');
+  useEffect(() => {
+    if (c?.resumeText) setResumeDraft(c.resumeText);
+  }, [c?.resumeText]);
 
   const call = useMutation({
     mutationFn: () => api('/integrations/telephony/call', { method: 'POST', body: JSON.stringify({ phone: c.phone }) }),
@@ -318,6 +373,27 @@ function CandidateDetailInner() {
                   {refreshHh.isPending ? 'HH…' : 'Обновить с HH'}
                 </Button>
               ) : null}
+              {canDelete ? (
+                <ConfirmDelete
+                  label="Удалить кандидата"
+                  question="Удалить кандидата безвозвратно? Офферы, проверки и вложения тоже удалятся."
+                  onConfirm={() => removeCandidate.mutate()}
+                  pending={removeCandidate.isPending}
+                />
+              ) : null}
+              {canPdn && !c.pdnConsentAt ? (
+                <Button variant="ghost" disabled={pdnConsent.isPending} onClick={() => pdnConsent.mutate()}>
+                  Отметить согласие на ПДн
+                </Button>
+              ) : null}
+              {canPdn && !c.isDepersonalized ? (
+                <ConfirmDelete
+                  label="Обезличить"
+                  question="Стереть персональные данные (телефон, email, адрес)? Карточка останется без ПДн."
+                  onConfirm={() => depersonalize.mutate()}
+                  pending={depersonalize.isPending}
+                />
+              ) : null}
             </div>
             {approveLink ? (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--sk-success-soft)', borderRadius: 8, fontSize: 13 }}>
@@ -366,11 +442,47 @@ function CandidateDetailInner() {
                       <div className="meta-row"><span className="meta-label">Телефон</span><span>{c.phone || '—'}</span></div>
                       <div className="meta-row"><span className="meta-label">Email</span><span>{c.email || '—'}</span></div>
                       <div className="meta-row"><span className="meta-label">Город</span><span>{c.city || '—'}</span></div>
+                      <div className="meta-row"><span className="meta-label">Согласие ПДн</span><span>{c.pdnConsentAt ? new Date(c.pdnConsentAt).toLocaleString('ru-RU') : 'не отмечено'}</span></div>
                     </div>
                   </div>
-                  <div style={{ marginTop: 16, fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--sk-label)' }}>
-                    {c.about || c.resumeText || 'Текст резюме не загружен'}
+                  <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                    <input
+                      ref={resumeFileRef}
+                      type="file"
+                      accept=".txt,.pdf,.doc,.docx,text/plain"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadResume.mutate(f);
+                        e.target.value = '';
+                      }}
+                    />
+                    <Button variant="ghost" disabled={uploadResume.isPending} onClick={() => resumeFileRef.current?.click()}>
+                      {uploadResume.isPending ? 'Загружаем…' : 'Загрузить файл резюме'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={saveResumeText.isPending || resumeDraft === (c.resumeText || '')}
+                      onClick={() => saveResumeText.mutate(resumeDraft)}
+                    >
+                      Сохранить текст
+                    </Button>
                   </div>
+                  <Textarea
+                    value={resumeDraft}
+                    onChange={(e) => setResumeDraft(e.target.value)}
+                    placeholder="Вставьте или отредактируйте текст резюме…"
+                    style={{ marginTop: 12, minHeight: 220, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}
+                  />
+                  {!c.about && !c.resumeText && !resumeDraft ? (
+                    <div style={{ marginTop: 8, fontSize: 13, color: 'var(--sk-muted)' }}>Текст резюме не загружен</div>
+                  ) : null}
+                  {c.about && c.about !== resumeDraft ? (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>О себе</div>
+                      <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--sk-label)' }}>{c.about}</div>
+                    </div>
+                  ) : null}
                 </div>
               )}
               {tab === 'history' && (

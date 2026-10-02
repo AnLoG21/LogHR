@@ -5,15 +5,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell, Button, Card, ConfirmDelete, Empty, ErrorText, Field, Icon, Input, Modal, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
 
-type ProfileForm = { id?: string; name: string; department: string; grade: string; description: string };
+type ProfileForm = { id?: string; name: string; department: string; grade: string; description: string; isActive?: boolean };
 
 export default function ProfilesPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState<ProfileForm | null>(null);
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const list = useQuery({
-    queryKey: ['profiles', search],
-    queryFn: () => api<any>(`/profiles?pageSize=100${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+    queryKey: ['profiles', search, showArchived],
+    queryFn: () => {
+      const p = new URLSearchParams({ pageSize: '100' });
+      if (search) p.set('search', search);
+      if (showArchived) p.set('archived', 'true');
+      return api<any>(`/profiles?${p}`);
+    },
   });
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['profiles'] });
@@ -28,7 +34,8 @@ export default function ProfilesPage() {
     onSuccess: () => { setForm(null); refresh(); },
   });
   const archive = useMutation({
-    mutationFn: (id: string) => api(`/profiles/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive: false }) }),
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      api(`/profiles/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
     onSuccess: () => { setForm(null); refresh(); },
   });
 
@@ -39,26 +46,30 @@ export default function ProfilesPage() {
       subtitle="Типовые должности: на их основе создаются заявки и вакансии"
       actions={<Button onClick={() => setForm({ name: '', department: '', grade: '', description: '' })}><Icon name="plus" className="w-4 h-4" /> Новый профиль</Button>}
     >
-      <Card className="p-4 mb-4">
-        <Input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Поиск по названию" />
+      <Card className="p-4 mb-4 flex flex-wrap gap-3 items-center">
+        <Input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Поиск по названию" className="flex-1 min-w-[200px]" />
+        <label className="text-sm flex items-center gap-2 text-[var(--sk-muted)]">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          Показать архив
+        </label>
       </Card>
       <div className="space-y-3">
         {items.map((p: any) => (
           <Card key={p.id} className="p-4 flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-bold">{p.name}</div>
+              <div className="font-bold">{p.name}{!p.isActive ? ' · архив' : ''}</div>
               <div className="text-sm text-[var(--sk-muted)] mt-1">{p.department || 'Подразделение не указано'} · {p.grade || 'без грейда'}</div>
               {p.description ? <div className="text-sm mt-2 whitespace-pre-wrap">{p.description}</div> : null}
             </div>
             <Button
               variant="ghost"
-              onClick={() => setForm({ id: p.id, name: p.name, department: p.department || '', grade: p.grade || '', description: p.description || '' })}
+              onClick={() => setForm({ id: p.id, name: p.name, department: p.department || '', grade: p.grade || '', description: p.description || '', isActive: p.isActive })}
             >
               <Icon name="edit" className="w-4 h-4" /> Изменить
             </Button>
           </Card>
         ))}
-        {!list.isLoading && !items.length ? <Empty text={search ? 'Ничего не найдено' : 'Профилей пока нет'} /> : null}
+        {!list.isLoading && !items.length ? <Empty text={search ? 'Ничего не найдено' : showArchived ? 'В архиве пусто' : 'Профилей пока нет'} /> : null}
       </div>
 
       <Modal open={!!form} title={form?.id ? 'Изменить профиль' : 'Новый профиль'} onClose={() => setForm(null)}>
@@ -81,12 +92,18 @@ export default function ProfilesPage() {
             <ErrorText error={save.error || archive.error} />
             <div className="flex flex-wrap justify-between gap-2">
               {form.id ? (
-                <ConfirmDelete
-                  label="В архив"
-                  question="Убрать профиль в архив? Существующие заявки и вакансии останутся."
-                  onConfirm={() => archive.mutate(form.id!)}
-                  pending={archive.isPending}
-                />
+                form.isActive === false ? (
+                  <Button type="button" variant="ghost" disabled={archive.isPending} onClick={() => archive.mutate({ id: form.id!, isActive: true })}>
+                    Вернуть из архива
+                  </Button>
+                ) : (
+                  <ConfirmDelete
+                    label="В архив"
+                    question="Убрать профиль в архив? Существующие заявки и вакансии останутся."
+                    onConfirm={() => archive.mutate({ id: form.id!, isActive: false })}
+                    pending={archive.isPending}
+                  />
+                )
               ) : <span />}
               <div className="flex gap-2">
                 <Button type="button" variant="ghost" onClick={() => setForm(null)}>Отмена</Button>

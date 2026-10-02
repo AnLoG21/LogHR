@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { AppShell, Button, Card, Empty, Icon, Input, Modal, Select } from '@/components/ui';
+import { AppShell, Button, Card, ConfirmDelete, Empty, Icon, Input, Modal, Select } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { downloadXlsx } from '@/lib/export';
@@ -137,6 +137,11 @@ function CandidatesInner() {
     },
   });
 
+  const removeFilter = useMutation({
+    mutationFn: (id: string) => api(`/filters/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-filters'] }),
+  });
+
   const bulkMail = useMutation({
     mutationFn: (payload: { action: 'invite' | 'reject'; stageId?: string; datetime?: string }) =>
       api('/notifications/bulk', {
@@ -241,9 +246,17 @@ function CandidatesInner() {
         {(savedFilters.data || []).length ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             {(savedFilters.data || []).map((f: any) => (
-              <button key={f.id} type="button" className="sk-btn sk-btn-outline" style={{ height: 30, fontSize: 12 }} onClick={() => applySaved(f)}>
-                {f.name}
-              </button>
+              <div key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button type="button" className="sk-btn sk-btn-outline" style={{ height: 30, fontSize: 12 }} onClick={() => applySaved(f)}>
+                  {f.name}
+                </button>
+                <ConfirmDelete
+                  iconOnly
+                  question={`Удалить сохранённый фильтр «${f.name}»?`}
+                  onConfirm={() => removeFilter.mutate(f.id)}
+                  pending={removeFilter.isPending}
+                />
+              </div>
             ))}
           </div>
         ) : null}

@@ -10,10 +10,10 @@ import { pageResult, paginate } from '../common/pagination';
 export class ProfilesService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { page?: number; pageSize?: number; search?: string }) {
+  async list(query: { page?: number; pageSize?: number; search?: string; archived?: boolean }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where = {
-      isActive: true,
+      isActive: query.archived ? false : true,
       ...(query.search
         ? { name: { contains: query.search, mode: 'insensitive' as const } }
         : {}),
@@ -56,8 +56,18 @@ export class ProfilesController {
   constructor(private service: ProfilesService) {}
 
   @Get()
-  list(@Query('page') page?: number, @Query('pageSize') pageSize?: number, @Query('search') search?: string) {
-    return this.service.list({ page, pageSize, search });
+  list(
+    @Query('page') page?: number,
+    @Query('pageSize') pageSize?: number,
+    @Query('search') search?: string,
+    @Query('archived') archived?: string,
+  ) {
+    return this.service.list({
+      page,
+      pageSize,
+      search,
+      archived: archived === '1' || archived === 'true',
+    });
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)

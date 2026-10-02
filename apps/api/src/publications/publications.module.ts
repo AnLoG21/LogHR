@@ -1,5 +1,5 @@
 import {
-  Body, Controller, ForbiddenException, Get, Headers, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
+  Body, Controller, Delete, ForbiddenException, Get, Headers, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JobBoard, Prisma, SystemRole } from '@prisma/client';
@@ -57,6 +57,13 @@ export class PublicationsService {
     });
   }
 
+  async removeTemplate(id: string) {
+    const existing = await this.prisma.publicationTemplate.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Шаблон не найден');
+    await this.prisma.publicationTemplate.delete({ where: { id } });
+    return { ok: true };
+  }
+
   listAutoRules(vacancyId?: string) {
     return this.prisma.autoPublishRule.findMany({
       where: vacancyId ? { vacancyId } : undefined,
@@ -105,6 +112,13 @@ export class PublicationsService {
         ...(data.isActive != null ? { isActive: data.isActive } : {}),
       },
     });
+  }
+
+  async removeAutoRule(id: string) {
+    const existing = await this.prisma.autoPublishRule.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Правило не найдено');
+    await this.prisma.autoPublishRule.delete({ where: { id } });
+    return { ok: true };
   }
 
   async runDueAutoPublishes(limit = 20) {
@@ -268,6 +282,12 @@ export class PublicationsController {
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Delete('templates/:id')
+  removeTemplate(@Param('id') id: string) {
+    return this.service.removeTemplate(id);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
   @Get('auto-rules')
   listAutoRules(@Query('vacancyId') vacancyId?: string) {
     return this.service.listAutoRules(vacancyId);
@@ -297,6 +317,12 @@ export class PublicationsController {
     dto: Partial<{ board: JobBoard; templateId: string | null; intervalHours: number; regionHint: string; isActive: boolean }>,
   ) {
     return this.service.updateAutoRule(id, dto);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Delete('auto-rules/:id')
+  removeAutoRule(@Param('id') id: string) {
+    return this.service.removeAutoRule(id);
   }
 
   @Public()
