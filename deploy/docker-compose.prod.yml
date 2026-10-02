@@ -66,8 +66,11 @@ services:
       REDIS_URL: redis://redis:6379
       WEB_URL: ${PUBLIC_URL:?set PUBLIC_URL}
       NODE_OPTIONS: --max-old-space-size=384
+      # MAX (platform-api2.max.ru) подписан «Russian Trusted Root CA» Минцифры
+      NODE_EXTRA_CA_CERTS: /etc/ssl/ru/russian_trusted_ca.pem
     volumes:
       - api_uploads:/app/apps/api/uploads
+      - ./certs/russian_trusted_ca.pem:/etc/ssl/ru/russian_trusted_ca.pem:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
