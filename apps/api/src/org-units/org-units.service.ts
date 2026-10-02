@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { pageResult, paginate } from '../common/pagination';
@@ -7,20 +7,20 @@ import { pageResult, paginate } from '../common/pagination';
 export class OrgUnitsService {
   constructor(private prisma: PrismaService) {}
 
-  async list(query: { page?: number; pageSize?: number; search?: string; city?: string }) {
+  async list(query: { page?: number; pageSize?: number; search?: string; city?: string; archived?: boolean }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where: Prisma.OrgUnitWhereInput = {
       AND: [
         query.search
           ? {
               OR: [
-                { name: { contains: query.search } },
-                { code: { contains: query.search } },
+                { name: { contains: query.search, mode: 'insensitive' } },
+                { code: { contains: query.search, mode: 'insensitive' } },
               ],
             }
           : {},
-        query.city ? { city: { contains: query.city } } : {},
-        { isActive: true },
+        query.city ? { city: { contains: query.city, mode: 'insensitive' } } : {},
+        query.archived ? {} : { isActive: true },
       ],
     };
     const [items, total] = await Promise.all([
@@ -80,7 +80,26 @@ export class OrgUnitsService {
   }>) {
     const exists = await this.prisma.orgUnit.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException();
-    return this.prisma.orgUnit.update({ where: { id }, data });
+    const patch: Prisma.OrgUnitUncheckedUpdateInput = {};
+    if (data.name !== undefined) patch.name = String(data.name).trim() || exists.name;
+    if (data.code !== undefined) patch.code = data.code || null;
+    if (data.city !== undefined) patch.city = data.city || null;
+    if (data.address !== undefined) patch.address = data.address || null;
+    if (data.legalEntity !== undefined) patch.legalEntity = data.legalEntity || null;
+    if (data.isActive !== undefined) patch.isActive = !!data.isActive;
+    if (data.parentId !== undefined) {
+      const parentId = data.parentId || null;
+      if (parentId === id) throw new BadRequestException('Подразделение не может входить само в себя');
+      let cursor = parentId;
+      while (cursor) {
+        const p: { parentId: string | null } | null = await this.prisma.orgUnit.findUnique({ where: { id: cursor }, select: { parentId: true } });
+        if (!p) throw new BadRequestException('Родительское подразделение не найдено');
+        if (p.parentId === id) throw new BadRequestException('Нельзя вложить подразделение в его же дочернее');
+        cursor = p.parentId;
+      }
+      patch.parentId = parentId;
+    }
+    return this.prisma.orgUnit.update({ where: { id }, data: patch });
   }
 
   async get(id: string) {

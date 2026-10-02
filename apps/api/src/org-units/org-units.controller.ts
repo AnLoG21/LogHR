@@ -26,8 +26,9 @@ export class OrgUnitsController {
     @Query('pageSize') pageSize?: number,
     @Query('search') search?: string,
     @Query('city') city?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.service.list({ page, pageSize, search, city });
+    return this.service.list({ page, pageSize, search, city, archived: archived === 'true' });
   }
 
   @Get('tree')

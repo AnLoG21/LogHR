@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Injectable, Module, Param, Patch, Post, Query,
+  BadRequestException, Body, Controller, Delete, Get, Injectable, Module, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TaskStatus } from '@prisma/client';
@@ -13,11 +13,12 @@ import { pageResult, paginate } from '../common/pagination';
 export class TasksService {
   constructor(private prisma: PrismaService) {}
 
-  async list(user: AuthUser, query: { page?: number; pageSize?: number; status?: TaskStatus; mine?: boolean }) {
+  async list(user: AuthUser, query: { page?: number; pageSize?: number; status?: TaskStatus | 'ALL'; mine?: boolean; candidateId?: string }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where = {
-      ...(query.status ? { status: query.status } : { status: TaskStatus.OPEN }),
-      ...(query.mine !== false ? { assigneeId: user.id } : {}),
+      ...(query.status === 'ALL' ? {} : query.status ? { status: query.status } : { status: TaskStatus.OPEN }),
+      ...(query.mine !== false ? { OR: [{ assigneeId: user.id }, { createdById: user.id }] } : {}),
+      ...(query.candidateId ? { candidateId: query.candidateId } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.task.findMany({
@@ -29,6 +30,8 @@ export class TasksService {
           candidate: { select: { id: true, firstName: true, lastName: true } },
           hiringRequest: { select: { id: true, title: true } },
           stage: true,
+          assignee: { select: { id: true, firstName: true, lastName: true } },
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
       this.prisma.task.count({ where }),
@@ -44,9 +47,11 @@ export class TasksService {
     hiringRequestId?: string;
     dueAt?: string;
   }, user: AuthUser) {
+    const title = String(data.title || '').trim();
+    if (!title) throw new BadRequestException('Укажите, что нужно сделать');
     return this.prisma.task.create({
       data: {
-        title: data.title,
+        title,
         description: data.description,
         assigneeId: data.assigneeId || user.id,
         candidateId: data.candidateId,
@@ -59,6 +64,24 @@ export class TasksService {
 
   updateStatus(id: string, status: TaskStatus) {
     return this.prisma.task.update({ where: { id }, data: { status } });
+  }
+
+  update(id: string, data: { title?: string; description?: string | null; assigneeId?: string | null; dueAt?: string | null; candidateId?: string | null }) {
+    const patch: any = {};
+    if (data.title !== undefined) {
+      const t = String(data.title).trim();
+      if (!t) throw new BadRequestException('Укажите, что нужно сделать');
+      patch.title = t;
+    }
+    if (data.description !== undefined) patch.description = data.description || null;
+    if (data.assigneeId !== undefined) patch.assigneeId = data.assigneeId || null;
+    if (data.candidateId !== undefined) patch.candidateId = data.candidateId || null;
+    if (data.dueAt !== undefined) patch.dueAt = data.dueAt ? new Date(data.dueAt) : null;
+    return this.prisma.task.update({ where: { id }, data: patch });
+  }
+
+  remove(id: string) {
+    return this.prisma.task.delete({ where: { id } });
   }
 }
 
@@ -75,8 +98,9 @@ export class TasksController {
     @Query('pageSize') pageSize?: number,
     @Query('status') status?: TaskStatus,
     @Query('mine') mine?: string,
+    @Query('candidateId') candidateId?: string,
   ) {
-    return this.service.list(user, { page, pageSize, status, mine: mine !== 'false' });
+    return this.service.list(user, { page, pageSize, status, mine: mine !== 'false', candidateId });
   }
 
   @Post()
@@ -90,6 +114,16 @@ export class TasksController {
   @Patch(':id/status')
   status(@Param('id') id: string, @Body('status') status: TaskStatus) {
     return this.service.updateStatus(id, status);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: { title?: string; description?: string; assigneeId?: string; dueAt?: string; candidateId?: string }) {
+    return this.service.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }
 

@@ -8,6 +8,7 @@ import { AppShell, Button, Card, Icon, Input, Modal, Select, Textarea } from '@/
 import { api, fullName } from '@/lib/api';
 import clsx from 'clsx';
 import { useAuth } from '@/lib/auth';
+import { AssessmentsTab, AttachmentsTab, ChecksTab, OffersTab } from '@/components/candidate-tabs';
 import {
   canMoveToStage,
   CHECK_STATUS_LABELS,
@@ -136,20 +137,6 @@ function CandidateDetailInner() {
     },
   });
 
-  const createOffer = useMutation({
-    mutationFn: () =>
-      api('/offers', {
-        method: 'POST',
-        body: JSON.stringify({
-          candidateId: id,
-          position: c?.vacancy?.title || c?.desiredPosition || 'Специалист',
-          salary: 120000,
-          conditions: 'Испытательный срок 3 месяца',
-        }),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
-  });
-
   const [approveLink, setApproveLink] = useState('');
   const [mergeOpen, setMergeOpen] = useState(false);
   const createCheck = useMutation({
@@ -215,6 +202,7 @@ function CandidateDetailInner() {
     { id: 'attachments', label: 'Вложения' },
     { id: 'checks', label: 'Проверки' },
     { id: 'offers', label: 'Офферы' },
+    { id: 'assessments', label: 'Опросники' },
     { id: 'messengers', label: 'Мессенджеры' },
     { id: 'responses', label: 'Отклики кандидата' },
   ];
@@ -386,44 +374,10 @@ function CandidateDetailInner() {
                   <HistoryFeed comments={c.comments || []} history={c.statusHistory || []} />
                 </div>
               )}
-              {tab === 'attachments' && (
-                <div style={{ fontSize: 14, color: 'var(--sk-muted)' }}>
-                  {(c.attachments || []).length ? (c.attachments || []).map((a: any) => <div key={a.id}>{a.fileName}</div>) : 'Нет вложений'}
-                </div>
-              )}
-              {tab === 'checks' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(c.checks || []).map((ch: any) => (
-                    <div key={ch.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0', alignItems: 'center' }}>
-                      <span>
-                        {ruLabel(CHECK_TYPE_LABELS, ch.type)}
-                        {ch.externalToken ? (
-                          <>
-                            {' · '}
-                            <a className="sk-link" href={`/public/check/${ch.externalToken}`} target="_blank" rel="noreferrer">ссылка</a>
-                          </>
-                        ) : null}
-                      </span>
-                      <span style={{ fontWeight: 500 }}>{ruLabel(CHECK_STATUS_LABELS, ch.status)}</span>
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', gap: 8, paddingTop: 8, flexWrap: 'wrap' }}>
-                    <Button variant="ghost" onClick={() => createCheck.mutate('SECURITY')}>СБ</Button>
-                    <Button variant="ghost" onClick={() => createCheck.mutate('HIRE_REQUEST')}>Приём</Button>
-                    <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')}>На согласование</Button>
-                  </div>
-                </div>
-              )}
-              {tab === 'offers' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(c.offers || []).map((o: any) => (
-                    <div key={o.id} style={{ fontSize: 14, borderBottom: '1px solid var(--sk-line)', padding: '8px 0', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{o.position} · {o.salary?.toLocaleString('ru-RU')} ₽</span><span>{ruLabel(OFFER_STATUS_LABELS, o.status)}</span>
-                    </div>
-                  ))}
-                  <Button onClick={() => createOffer.mutate()}>Создать оффер</Button>
-                </div>
-              )}
+              {tab === 'attachments' && <AttachmentsTab candidate={c} />}
+              {tab === 'checks' && <ChecksTab candidate={c} />}
+              {tab === 'offers' && <OffersTab candidate={c} />}
+              {tab === 'assessments' && <AssessmentsTab candidateId={id} />}
               {tab === 'messengers' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
                   <WhatsappTemplatesBlock candidateId={id} hasPhone={Boolean(c.phone)} />

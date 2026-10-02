@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Prisma, SystemRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -54,6 +54,13 @@ export class CustomFieldsService {
       },
     });
   }
+
+  async remove(id: string) {
+    const existing = await this.prisma.customFieldDefinition.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException();
+    await this.prisma.customFieldDefinition.delete({ where: { id } });
+    return { ok: true };
+  }
 }
 
 @ApiTags('custom-fields')
@@ -91,6 +98,12 @@ export class CustomFieldsController {
     @Body() dto: Partial<{ label: string; fieldType: string; options: unknown; sortOrder: number; isActive: boolean }>,
   ) {
     return this.service.update(id, dto);
+  }
+
+  @Roles(SystemRole.ADMIN)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }
 

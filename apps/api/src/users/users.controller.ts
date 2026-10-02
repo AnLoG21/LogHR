@@ -23,6 +23,12 @@ class CreateUserDto {
 export class UsersController {
   constructor(private users: UsersService) {}
 
+  @Roles(...Object.values(SystemRole))
+  @Get('directory')
+  directory() {
+    return this.users.directory();
+  }
+
   @Get()
   list(
     @Query('page') page?: number,

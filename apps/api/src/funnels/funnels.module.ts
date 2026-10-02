@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, Get, Module, Injectable, NotFoundException, Param, Post, Patch,
+  BadRequestException, Body, Controller, Delete, Get, Module, Injectable, NotFoundException, Param, Post, Patch, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
@@ -26,7 +26,60 @@ export class FunnelsService {
     });
   }
 
-  async addStage(funnelId: string, data: { name: string; code: string; order?: number; isFinal?: boolean }) {
+  private newCode(prefix: string) {
+    return `${prefix}_${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  }
+
+  async create(data: { name: string; copyFromId?: string }) {
+    const name = String(data.name || '').trim();
+    if (!name) throw new BadRequestException('Укажите название воронки');
+    const source = data.copyFromId
+      ? await this.prisma.funnel.findUnique({ where: { id: data.copyFromId }, include: { stages: { orderBy: { order: 'asc' } } } })
+      : null;
+    if (data.copyFromId && !source) throw new BadRequestException('Воронка-образец не найдена');
+    const stages = source?.stages.length
+      ? source.stages.map((s) => ({ code: s.code, name: s.name, order: s.order, isFinal: s.isFinal, color: s.color }))
+      : [
+          { code: 'NEW', name: 'Новый отклик', order: 1, isFinal: false },
+          { code: 'INTERVIEW', name: 'Собеседование', order: 2, isFinal: false },
+          { code: 'OFFER', name: 'Оффер', order: 3, isFinal: false },
+          { code: 'HIRED', name: 'Выход на работу', order: 4, isFinal: true },
+        ];
+    return this.prisma.funnel.create({
+      data: {
+        name,
+        code: this.newCode('F'),
+        transitions: (source?.transitions ?? undefined) as any,
+        stages: { create: stages },
+      },
+      include: { stages: { orderBy: { order: 'asc' } } },
+    });
+  }
+
+  async update(id: string, data: { name?: string }) {
+    const funnel = await this.prisma.funnel.findUnique({ where: { id } });
+    if (!funnel) throw new NotFoundException();
+    const name = String(data.name || '').trim();
+    if (!name) throw new BadRequestException('Укажите название воронки');
+    return this.prisma.funnel.update({ where: { id }, data: { name } });
+  }
+
+  async archive(id: string) {
+    const funnel = await this.prisma.funnel.findUnique({ where: { id } });
+    if (!funnel) throw new NotFoundException();
+    const vacancies = await this.prisma.vacancy.count({ where: { funnelId: id, isActive: true } });
+    if (vacancies) {
+      throw new BadRequestException(`Воронка используется в активных вакансиях (${vacancies}). Сначала переведите их на другую воронку или в архив`);
+    }
+    const others = await this.prisma.funnel.count({ where: { isActive: true, id: { not: id } } });
+    if (!others) throw new BadRequestException('Нельзя убрать последнюю воронку');
+    await this.prisma.funnel.update({ where: { id }, data: { isActive: false } });
+    return { ok: true };
+  }
+
+  async addStage(funnelId: string, data: { name: string; code?: string; order?: number; isFinal?: boolean }) {
+    const name = String(data.name || '').trim();
+    if (!name) throw new BadRequestException('Укажите название этапа');
     const max = await this.prisma.funnelStage.aggregate({
       where: { funnelId },
       _max: { order: true },
@@ -34,19 +87,72 @@ export class FunnelsService {
     return this.prisma.funnelStage.create({
       data: {
         funnelId,
-        name: data.name,
-        code: data.code,
+        name,
+        code: this.newCode('S'),
         order: data.order ?? (max._max.order ?? 0) + 1,
         isFinal: !!data.isFinal,
       },
     });
   }
 
-  async updateStage(
-    id: string,
-    data: Partial<{ name: string; code: string; order: number; isFinal: boolean; color: string }>,
-  ) {
-    return this.prisma.funnelStage.update({ where: { id }, data });
+  async updateStage(id: string, data: { name?: string; isFinal?: boolean; color?: string }) {
+    const stage = await this.prisma.funnelStage.findUnique({ where: { id } });
+    if (!stage) throw new NotFoundException();
+    const patch: { name?: string; isFinal?: boolean; color?: string } = {};
+    if (data.name !== undefined) {
+      const name = String(data.name).trim();
+      if (!name) throw new BadRequestException('Укажите название этапа');
+      patch.name = name;
+    }
+    if (data.isFinal !== undefined) patch.isFinal = !!data.isFinal;
+    if (data.color !== undefined) patch.color = data.color;
+    return this.prisma.funnelStage.update({ where: { id }, data: patch });
+  }
+
+  async stageUsage(id: string) {
+    const [candidates, history, scenarios] = await Promise.all([
+      this.prisma.candidate.count({ where: { stageId: id } }),
+      this.prisma.candidateStatusHistory.count({ where: { stageId: id } }),
+      this.prisma.assessmentScenario.count({ where: { funnelStageId: id } }),
+    ]);
+    return { candidates, history, scenarios };
+  }
+
+  async removeStage(id: string, moveToStageId?: string) {
+    const stage = await this.prisma.funnelStage.findUnique({ where: { id }, include: { funnel: true } });
+    if (!stage) throw new NotFoundException();
+    const siblings = await this.prisma.funnelStage.count({ where: { funnelId: stage.funnelId } });
+    if (siblings <= 1) throw new BadRequestException('В воронке должен остаться хотя бы один этап');
+    const usage = await this.stageUsage(id);
+    let target: { id: string; name: string } | null = null;
+    if (usage.candidates || usage.history) {
+      if (!moveToStageId) throw new BadRequestException('Выберите этап, на который перенести кандидатов');
+      target = await this.prisma.funnelStage.findFirst({
+        where: { id: moveToStageId, funnelId: stage.funnelId, NOT: { id } },
+        select: { id: true, name: true },
+      });
+      if (!target) throw new BadRequestException('Этап для переноса не найден в этой воронке');
+    }
+    const note = `этап «${stage.name}» удалён`;
+    await this.prisma.$transaction(async (tx) => {
+      if (target) {
+        await tx.candidate.updateMany({ where: { stageId: id }, data: { stageId: target.id } });
+        await tx.$executeRaw`UPDATE "CandidateStatusHistory" SET "stageId" = ${target.id}, "comment" = CASE WHEN "comment" IS NULL OR "comment" = '' THEN ${note} ELSE "comment" || ' · ' || ${note} END WHERE "stageId" = ${id}`;
+      }
+      await tx.task.updateMany({ where: { stageId: id }, data: { stageId: null } });
+      await tx.assessmentScenario.deleteMany({ where: { funnelStageId: id } });
+      await tx.funnelStage.delete({ where: { id } });
+      const rest = await tx.funnelStage.findMany({ where: { funnelId: stage.funnelId }, orderBy: { order: 'asc' } });
+      for (const [i, s] of rest.entries()) {
+        if (s.order !== i + 1) await tx.funnelStage.update({ where: { id: s.id }, data: { order: i + 1 } });
+      }
+      const transitions = stage.funnel.transitions as FunnelTransitions | null;
+      if (transitions?.stageRoles?.[stage.code]) {
+        const { [stage.code]: _removed, ...stageRoles } = transitions.stageRoles;
+        await tx.funnel.update({ where: { id: stage.funnelId }, data: { transitions: { ...transitions, stageRoles } as any } });
+      }
+    });
+    return { ok: true };
   }
 
   async reorder(funnelId: string, stageIds: string[]) {
@@ -100,18 +206,47 @@ export class FunnelsController {
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
+  @Post()
+  create(@Body() dto: { name: string; copyFromId?: string }) {
+    return this.service.create(dto);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: { name?: string }) {
+    return this.service.update(id, dto);
+  }
+
+  @Roles(SystemRole.ADMIN)
+  @Delete(':id')
+  archive(@Param('id') id: string) {
+    return this.service.archive(id);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
   @Post(':id/stages')
   addStage(
     @Param('id') id: string,
-    @Body() dto: { name: string; code: string; order?: number; isFinal?: boolean },
+    @Body() dto: { name: string; order?: number; isFinal?: boolean },
   ) {
     return this.service.addStage(id, dto);
   }
 
+  @Get('stages/:stageId/usage')
+  stageUsage(@Param('stageId') stageId: string) {
+    return this.service.stageUsage(stageId);
+  }
+
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
   @Patch('stages/:stageId')
-  updateStage(@Param('stageId') stageId: string, @Body() dto: any) {
+  updateStage(@Param('stageId') stageId: string, @Body() dto: { name?: string; isFinal?: boolean; color?: string }) {
     return this.service.updateStage(stageId, dto);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)
+  @Delete('stages/:stageId')
+  removeStage(@Param('stageId') stageId: string, @Query('moveTo') moveTo?: string) {
+    return this.service.removeStage(stageId, moveTo || undefined);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD)

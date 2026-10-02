@@ -1,61 +1,82 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { HIRING_REQUEST_STATUS_LABELS, HiringRequestStatus, PRIORITY_LABELS, ruLabel } from '@skillaz/shared';
-import { AppShell, Button, Card, Empty, Icon, Input, Modal, Select } from '@/components/ui';
+import { AppShell, Badge, Button, Card, Empty, Icon, Input, Select } from '@/components/ui';
+import { RequestFormModal, RequestStatusActions, requestToForm, type RequestFormValue } from '@/components/request-form';
 import { api } from '@/lib/api';
 
+const STATUS_COLOR: Record<string, string> = {
+  NEW: 'slate',
+  PENDING_HR_BP: 'amber',
+  APPROVED_HR_BP: 'blue',
+  REJECTED_HR_BP: 'rose',
+  IN_PROGRESS: 'green',
+  PAUSED: 'amber',
+  CANCELLED: 'slate',
+  CLOSED: 'slate',
+};
+
 export default function RequestsPage() {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<RequestFormValue | null>(null);
+  const [filters, setFilters] = useState({ search: '', status: '', candidateProfileId: '', orgUnitId: '', priority: '' });
+
+  const qs = useMemo(() => {
+    const p = new URLSearchParams({ pageSize: '100' });
+    Object.entries(filters).forEach(([k, v]) => { if (v) p.set(k, v); });
+    return p.toString();
+  }, [filters]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['requests'],
-    queryFn: () => api<any>('/hiring-requests?pageSize=50'),
+    queryKey: ['requests', qs],
+    queryFn: () => api<any>(`/hiring-requests?${qs}`),
   });
-  const orgUnits = useQuery({ queryKey: ['org-units-mini'], queryFn: () => api<any>('/org-units?pageSize=100') });
-  const profiles = useQuery({ queryKey: ['profiles-mini'], queryFn: () => api<any>('/profiles?pageSize=100') });
-
-  const change = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      api(`/hiring-requests/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
-  });
-
-  const create = useMutation({
-    mutationFn: (body: any) => api('/hiring-requests', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => {
-      setOpen(false);
-      qc.invalidateQueries({ queryKey: ['requests'] });
-    },
-  });
+  const orgUnits = useQuery({ queryKey: ['org-units-mini'], queryFn: () => api<any>('/org-units?pageSize=200') });
+  const profiles = useQuery({ queryKey: ['profiles-mini'], queryFn: () => api<any>('/profiles?pageSize=200') });
 
   const items = data?.items || [];
+  const hasFilters = Object.values(filters).some(Boolean);
 
   return (
     <AppShell
       title="Заявки"
+      subtitle="Заявки на подбор от подразделений: согласование, работа и закрытие"
       actions={
-        <Button onClick={() => setOpen(true)}>
-          <Icon name="plus" className="w-4 h-4" /> Добавить заявку
+        <Button onClick={() => setForm(requestToForm())}>
+          <Icon name="plus" className="w-4 h-4" /> Новая заявка
         </Button>
       }
     >
       <Card className="p-4 mb-4">
-        <div className="text-[13px] font-semibold text-[var(--sk-label)] mb-3">Фильтры заявок</div>
-        <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-2">
-          <Select defaultValue=""><option value="">Статус</option></Select>
-          <Select defaultValue=""><option value="">Профиль кандидата</option></Select>
-          <Select defaultValue=""><option value="">Воронка</option></Select>
-          <Select defaultValue=""><option value="">Вакансия</option></Select>
-          <Select defaultValue=""><option value="">Орг единица</option></Select>
-          <Select defaultValue=""><option value="">Приоритет заявки</option></Select>
+        <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-2">
+          <Input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} placeholder="Поиск по названию" aria-label="Поиск по названию" />
+          <Select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} aria-label="Статус">
+            <option value="">Все статусы</option>
+            {Object.entries(HIRING_REQUEST_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </Select>
+          <Select value={filters.candidateProfileId} onChange={(e) => setFilters({ ...filters, candidateProfileId: e.target.value })} aria-label="Профиль кандидата">
+            <option value="">Все профили</option>
+            {(profiles.data?.items || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </Select>
+          <Select value={filters.orgUnitId} onChange={(e) => setFilters({ ...filters, orgUnitId: e.target.value })} aria-label="Подразделение">
+            <option value="">Все подразделения</option>
+            {(orgUnits.data?.items || []).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </Select>
+          <Select value={filters.priority} onChange={(e) => setFilters({ ...filters, priority: e.target.value })} aria-label="Приоритет">
+            <option value="">Любой приоритет</option>
+            {Object.entries(PRIORITY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </Select>
         </div>
+        {hasFilters ? (
+          <button type="button" className="sk-link text-[13px] mt-3" onClick={() => setFilters({ search: '', status: '', candidateProfileId: '', orgUnitId: '', priority: '' })}>
+            Сбросить фильтры
+          </button>
+        ) : null}
       </Card>
 
-      <div className="text-[13px] font-semibold mb-3">Всего {items.length} заявки</div>
-
+      <div className="text-[13px] text-[var(--sk-muted)] mb-3">Найдено: {data?.total ?? items.length}</div>
       {isLoading ? <Empty text="Загрузка…" /> : null}
 
       <div className="space-y-3">
@@ -63,101 +84,52 @@ export default function RequestsPage() {
           <Card key={r.id} className="p-5">
             <div className="flex gap-3 items-start">
               <div className="flex-1 min-w-0">
-                <Link href={`/requests/${r.id}`} className="text-[17px] font-bold leading-snug hover:text-[var(--sk-link)]">
-                  {r.title}
-                </Link>
-                <div className="flex flex-wrap items-center gap-2 mt-2 text-[13px]">
-                  <span className={r.status === 'IN_PROGRESS' || r.status === 'APPROVED_HR_BP' ? 'text-[var(--sk-green)] font-semibold' : 'text-[var(--sk-muted)] font-semibold'}>
-                    {HIRING_REQUEST_STATUS_LABELS[r.status as HiringRequestStatus] || r.status}
-                  </span>
-                  <span className="text-[var(--sk-muted)]">·</span>
-                  <span className="text-[var(--sk-muted)]">
-                    {r.updatedAt ? new Date(r.updatedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={`/requests/${r.id}`} className="text-[17px] font-bold leading-snug hover:text-[var(--sk-link)]">
+                    {r.title}
+                  </Link>
+                  <Badge color={STATUS_COLOR[r.status] || 'slate'}>{HIRING_REQUEST_STATUS_LABELS[r.status as HiringRequestStatus] || r.status}</Badge>
+                  {r.priority === 'HIGH' ? <Badge color="rose">Высокий приоритет</Badge> : null}
+                </div>
+                <div className="text-[13px] text-[var(--sk-muted)] mt-1">
+                  Обновлена {r.updatedAt ? new Date(r.updatedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '—'}
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mt-4 text-[13px]">
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Профиль кандидата</span><span>{r.candidateProfile?.name || '—'}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Количество позиций</span><span>{r.positionsCount}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Орг единица</span><span className="truncate">{r.orgUnit?.name || '—'}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Адрес / Рабочее место</span><span>{r.workAddress || r.city || '—'}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Приоритет заявки</span><span>{ruLabel(PRIORITY_LABELS, r.priority)}</span></div>
-                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-44 shrink-0">Плановая дата закрытия</span><span>{r.plannedCloseDate ? new Date(r.plannedCloseDate).toLocaleDateString('ru-RU') : 'Не указано'}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Профиль кандидата</span><span>{r.candidateProfile?.name || '—'}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Подразделение</span><span className="truncate">{r.orgUnit?.name || '—'}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Город</span><span>{r.city || r.orgUnit?.city || '—'}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Рекрутер</span><span>{r.recruiter ? `${r.recruiter.lastName} ${r.recruiter.firstName}` : 'Не назначен'}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Приоритет</span><span>{ruLabel(PRIORITY_LABELS, r.priority)}</span></div>
+                  <div className="flex gap-2"><span className="text-[var(--sk-muted)] w-40 shrink-0">Вакансия</span>{r.vacancy ? <Link href={`/vacancies/${r.vacancy.id}`} className="sk-link">{r.vacancy.title}</Link> : <span>Появится после взятия в работу</span>}</div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg bg-[var(--sk-soft)] px-3 py-2 text-[13px]">
+                  <span>Нужно: <strong>{r.positionsCount}</strong></span>
+                  <span>Оформлено: <strong>{r.hiredCount ?? 0}</strong></span>
+                  <span>Кандидатов: <strong>{r._count?.candidates ?? 0}</strong></span>
+                  <Link href={`/candidates?requestId=${r.id}`} className="sk-link ml-auto">Показать кандидатов</Link>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2 items-center">
-                  <Link href={`/candidates?requestId=${r.id}`} className="sk-link text-[13px] font-medium">Показать кандидатов</Link>
-                  {r.status === 'NEW' && (
-                    <Button variant="ghost" className="h-8 text-[12px]" onClick={() => change.mutate({ id: r.id, status: 'PENDING_HR_BP' })}>На согласование</Button>
-                  )}
-                  {r.status === 'PENDING_HR_BP' && (
-                    <>
-                      <Button className="h-8 text-[12px]" onClick={() => change.mutate({ id: r.id, status: 'APPROVED_HR_BP' })}>Согласовать</Button>
-                      <Button variant="ghost" className="h-8 text-[12px]" onClick={() => change.mutate({ id: r.id, status: 'REJECTED_HR_BP' })}>Отклонить</Button>
-                    </>
-                  )}
-                  {r.status === 'APPROVED_HR_BP' && (
-                    <Button className="h-8 text-[12px]" onClick={() => change.mutate({ id: r.id, status: 'IN_PROGRESS' })}>В работу</Button>
-                  )}
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-[var(--sk-line)]">
-                  <div className="text-[13px] font-semibold mb-2">Кандидаты</div>
-                  <div className="flex items-center justify-between rounded-md border border-[var(--sk-line)] px-3 py-2 text-[13px] bg-[var(--sk-soft)]">
-                    <span className="text-[var(--sk-muted)]">Уже оформлено</span>
-                    <span className="w-6 h-6 rounded-full bg-[var(--sk-ink)] text-white text-[11px] font-bold grid place-items-center">0</span>
-                  </div>
+                  <RequestStatusActions request={r} />
                 </div>
               </div>
               <div className="flex gap-1 shrink-0">
-                <Link href={`/requests/${r.id}`} className="sk-btn sk-btn-icon"><Icon name="edit" /></Link>
-                <button className="sk-btn sk-btn-icon"><Icon name="more" /></button>
+                {r.status !== 'CLOSED' && r.status !== 'CANCELLED' ? (
+                  <button type="button" className="sk-btn sk-btn-icon" title="Изменить заявку" aria-label="Изменить заявку" onClick={() => setForm(requestToForm(r))}>
+                    <Icon name="edit" />
+                  </button>
+                ) : null}
+                <Link href={`/requests/${r.id}`} className="sk-btn sk-btn-icon" title="Открыть" aria-label="Открыть заявку"><Icon name="eye" /></Link>
               </div>
             </div>
           </Card>
         ))}
-        {!isLoading && !items.length ? <Empty text="Список пуст" /> : null}
+        {!isLoading && !items.length ? <Empty text={hasFilters ? 'По фильтрам ничего не найдено' : 'Заявок пока нет'} /> : null}
       </div>
 
-      <Modal open={open} title="Новая заявка" onClose={() => setOpen(false)}>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
-            create.mutate({
-              title: fd.get('title'),
-              orgUnitId: fd.get('orgUnitId'),
-              candidateProfileId: fd.get('candidateProfileId') || undefined,
-              positionsCount: Number(fd.get('positionsCount') || 1),
-              priority: fd.get('priority') || 'MEDIUM',
-              city: fd.get('city') || undefined,
-            });
-          }}
-        >
-          <Input name="title" placeholder="Название заявки" required />
-          <Select name="orgUnitId" required defaultValue="">
-            <option value="" disabled>Орг. единица</option>
-            {(orgUnits.data?.items || []).map((o: any) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </Select>
-          <Select name="candidateProfileId" defaultValue="">
-            <option value="">Профиль кандидата</option>
-            {(profiles.data?.items || []).map((p: any) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </Select>
-          <Input name="positionsCount" type="number" min={1} defaultValue={1} />
-          <Select name="priority" defaultValue="MEDIUM">
-            <option value="LOW">Низкий</option>
-            <option value="MEDIUM">Средний</option>
-            <option value="HIGH">Высокий</option>
-          </Select>
-          <Input name="city" placeholder="Город" />
-          <Button type="submit" disabled={create.isPending}>Создать</Button>
-        </form>
-      </Modal>
+      <RequestFormModal value={form} onClose={() => setForm(null)} />
     </AppShell>
   );
 }

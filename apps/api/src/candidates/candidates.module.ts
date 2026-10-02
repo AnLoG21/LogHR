@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Injectable,
   Module,
@@ -332,7 +333,10 @@ export class CandidatesService {
           },
           orderBy: { createdAt: 'desc' },
         },
-        checks: true,
+        checks: {
+          orderBy: { createdAt: 'desc' },
+          include: { assignee: { select: { id: true, firstName: true, lastName: true } } },
+        },
         offers: { orderBy: { createdAt: 'desc' } },
         responses: { orderBy: { receivedAt: 'desc' } },
         assessments: { include: { questionnaire: true } },
@@ -697,6 +701,12 @@ export class CandidatesService {
     return this.get(id);
   }
 
+  async removeAttachment(id: string, attachmentId: string) {
+    const res = await this.prisma.attachment.deleteMany({ where: { id: attachmentId, candidateId: id } });
+    if (!res.count) throw new NotFoundException();
+    return { ok: true };
+  }
+
   async setPdnConsent(id: string) {
     await this.ensureExists(id);
     return this.prisma.candidate.update({
@@ -856,6 +866,12 @@ export class CandidatesController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.addComment(id, body, user);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)
+  @Delete(':id/attachments/:attachmentId')
+  removeAttachment(@Param('id') id: string, @Param('attachmentId') attachmentId: string) {
+    return this.service.removeAttachment(id, attachmentId);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.HR_BP)

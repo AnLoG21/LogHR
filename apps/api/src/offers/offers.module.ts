@@ -1,10 +1,11 @@
 import {
-  Body, Controller, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
+  BadRequestException, Body, Controller, Delete, Get, Injectable, Module, NotFoundException, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OfferStatus, SystemRole } from '@prisma/client';
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 import PDFDocument from 'pdfkit';
+import { OFFER_STATUS_LABELS, ruLabel } from '@skillaz/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser, Public, Roles } from '../common/guards';
@@ -42,11 +43,14 @@ export class OffersService {
     conditions?: string;
   }, user: AuthUser) {
     const { randomUUID } = await import('crypto');
+    if (!data.candidateId) throw new BadRequestException('Не указан кандидат');
+    const salary = data.salary != null && data.salary !== ('' as any) ? Number(data.salary) : undefined;
+    if (salary !== undefined && (!Number.isFinite(salary) || salary < 0)) throw new BadRequestException('Некорректный оклад');
     return this.prisma.offer.create({
       data: {
         candidateId: data.candidateId,
-        position: data.position,
-        salary: data.salary,
+        position: data.position?.trim() || undefined,
+        salary,
         currency: data.currency || 'RUB',
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         conditions: data.conditions,
@@ -57,7 +61,34 @@ export class OffersService {
     });
   }
 
+  async update(id: string, data: { position?: string; salary?: number | null; startDate?: string | null; conditions?: string }) {
+    const offer = await this.prisma.offer.findUnique({ where: { id } });
+    if (!offer) throw new NotFoundException();
+    if (['ACCEPTED', 'DECLINED'].includes(offer.status)) {
+      throw new BadRequestException('Кандидат уже ответил на оффер — изменить его нельзя');
+    }
+    const patch: any = {};
+    if (data.position !== undefined) patch.position = data.position?.trim() || null;
+    if (data.salary !== undefined) {
+      const salary = data.salary === null || data.salary === ('' as any) ? null : Number(data.salary);
+      if (salary !== null && (!Number.isFinite(salary) || salary < 0)) throw new BadRequestException('Некорректный оклад');
+      patch.salary = salary;
+    }
+    if (data.startDate !== undefined) patch.startDate = data.startDate ? new Date(data.startDate) : null;
+    if (data.conditions !== undefined) patch.conditions = data.conditions || null;
+    return this.prisma.offer.update({ where: { id }, data: patch });
+  }
+
+  async remove(id: string) {
+    const offer = await this.prisma.offer.findUnique({ where: { id } });
+    if (!offer) throw new NotFoundException();
+    if (offer.status === 'ACCEPTED') throw new BadRequestException('Принятый оффер удалить нельзя');
+    await this.prisma.offer.delete({ where: { id } });
+    return { ok: true };
+  }
+
   async changeStatus(id: string, status: OfferStatus) {
+    if (!Object.values(OfferStatus).includes(status)) throw new BadRequestException('Неизвестный статус оффера');
     return this.prisma.offer.update({ where: { id }, data: { status } });
   }
 
@@ -102,7 +133,7 @@ export class OffersService {
       doc.text('Условия:');
       doc.text(offer.conditions || '—');
       doc.moveDown();
-      doc.text(`Статус: ${offer.status}`);
+      doc.text(`Статус: ${ruLabel(OFFER_STATUS_LABELS, offer.status)}`);
       doc.end();
     });
   }
@@ -127,6 +158,23 @@ export class OffersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.create(dto, user);
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD, SystemRole.HIRING_MANAGER)
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: { position?: string; salary?: number | null; startDate?: string | null; conditions?: string },
+  ) {
+    return this.service.update(id, dto);
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 
   @ApiBearerAuth()

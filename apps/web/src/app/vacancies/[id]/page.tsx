@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
-import { AppShell, Badge, Button, Card, Input, Select, StageStrip } from '@/components/ui';
+import { AppShell, Badge, Button, Card, ErrorText, Field, Icon, Input, Modal, Select, StageStrip, Textarea } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 
 export default function VacancyDetailPage() {
@@ -12,10 +12,15 @@ export default function VacancyDetailPage() {
   const qc = useQueryClient();
   const [citiesInput, setCitiesInput] = useState('');
   const [cityFilter, setCityFilter] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [edit, setEdit] = useState({ title: '', description: '', city: '', funnelId: '', orgUnitId: '', candidateProfileId: '' });
   const { data: v } = useQuery({
     queryKey: ['vacancy', id],
     queryFn: () => api<any>(`/vacancies/${id}`),
   });
+  const funnels = useQuery({ queryKey: ['funnels'], queryFn: () => api<any[]>('/funnels'), enabled: editOpen });
+  const profiles = useQuery({ queryKey: ['profiles-mini'], queryFn: () => api<any>('/profiles?pageSize=200'), enabled: editOpen });
+  const orgUnits = useQuery({ queryKey: ['org-units-mini'], queryFn: () => api<any>('/org-units?pageSize=200'), enabled: editOpen });
 
   const publish = useMutation({
     mutationFn: (board: string) =>
@@ -25,7 +30,11 @@ export default function VacancyDetailPage() {
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       api(`/vacancies/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['vacancy', id] }),
+    onSuccess: () => {
+      setEditOpen(false);
+      qc.invalidateQueries({ queryKey: ['vacancy', id] });
+      qc.invalidateQueries({ queryKey: ['vacancies'] });
+    },
   });
   const addCities = useMutation({
     mutationFn: (cities: string[]) =>
@@ -37,7 +46,7 @@ export default function VacancyDetailPage() {
     },
   });
 
-  if (!v) return <AppShell title="Вакансия"><div className="text-[var(--muted)]">Загрузка…</div></AppShell>;
+  if (!v) return <AppShell title="Вакансия"><div className="text-[var(--sk-muted)]">Загрузка…</div></AppShell>;
 
   const counters = new Map<string, number>(
     (v.stageCounters || []).map((s: any) => [String(s.stageId), Number(s._count) || 0]),
@@ -58,8 +67,28 @@ export default function VacancyDetailPage() {
       subtitle={v.description || ''}
       actions={
         <>
-          <Button variant="ghost" onClick={() => publish.mutate('HH')}>Опубликовать на HeadHunter</Button>
-          <Button variant="ghost" onClick={() => publish.mutate('AVITO')}>Опубликовать на Avito</Button>
+          <Link href="/vacancies" className="sk-btn sk-btn-outline">← Все вакансии</Link>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setEdit({
+                title: v.title || '',
+                description: v.description || '',
+                city: v.city || '',
+                funnelId: v.funnelId || v.funnel?.id || '',
+                orgUnitId: v.orgUnitId || v.orgUnit?.id || '',
+                candidateProfileId: v.candidateProfileId || v.candidateProfile?.id || '',
+              });
+              setEditOpen(true);
+            }}
+          >
+            <Icon name="edit" className="w-4 h-4" /> Изменить
+          </Button>
+          <Button variant="ghost" onClick={() => patch.mutate({ isActive: !v.isActive })} disabled={patch.isPending}>
+            {v.isActive ? 'В архив' : 'Вернуть из архива'}
+          </Button>
+          <Button variant="ghost" onClick={() => publish.mutate('HH')} disabled={!v.isActive}>Опубликовать на HeadHunter</Button>
+          <Button variant="ghost" onClick={() => publish.mutate('AVITO')} disabled={!v.isActive}>Опубликовать на Avito</Button>
         </>
       }
     >
@@ -113,6 +142,16 @@ export default function VacancyDetailPage() {
                       </button>
                     ) : null}
                     <Badge color={c.isActive ? 'green' : 'slate'}>{c.isActive ? 'Активна' : 'Архив'}</Badge>
+                    <button
+                      type="button"
+                      className="sk-link text-xs"
+                      onClick={() => api(`/vacancies/${c.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: !c.isActive }) }).then(() => {
+                        qc.invalidateQueries({ queryKey: ['vacancy', id] });
+                        qc.invalidateQueries({ queryKey: ['vacancies'] });
+                      })}
+                    >
+                      {c.isActive ? 'В архив' : 'Вернуть'}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -120,6 +159,17 @@ export default function VacancyDetailPage() {
           ) : null}
         </Card>
       )}
+
+      <Card className="p-4 mb-4 text-sm">
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <span><span className="text-[var(--sk-muted)]">Профиль:</span> {v.candidateProfile?.name || '—'}</span>
+          <span><span className="text-[var(--sk-muted)]">Воронка:</span> {v.funnel?.name || '—'}</span>
+          <span><span className="text-[var(--sk-muted)]">Подразделение:</span> {v.orgUnit?.name || '—'}</span>
+          <span><span className="text-[var(--sk-muted)]">Город:</span> {v.city || '—'}</span>
+          <Badge color={v.isActive ? 'green' : 'slate'}>{v.isActive ? 'Активна' : 'В архиве'}</Badge>
+        </div>
+        {v.description ? <div className="mt-3 whitespace-pre-wrap text-[13px]">{v.description}</div> : null}
+      </Card>
 
       <Card className="p-4 mb-4 flex flex-wrap gap-3 items-center justify-between">
         <div className="text-sm">
@@ -167,6 +217,50 @@ export default function VacancyDetailPage() {
           ))}
         </div>
       </Card>
+
+      <Modal open={editOpen} title="Изменить вакансию" onClose={() => setEditOpen(false)} maxWidth={560}>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            patch.mutate({
+              title: edit.title,
+              description: edit.description || '',
+              city: edit.city || '',
+              funnelId: edit.funnelId || undefined,
+              orgUnitId: edit.orgUnitId || undefined,
+              candidateProfileId: edit.candidateProfileId || undefined,
+            });
+          }}
+        >
+          <Field label="Название"><Input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} required /></Field>
+          <Field label="Описание"><Textarea value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Профиль кандидата">
+              <Select value={edit.candidateProfileId} onChange={(e) => setEdit({ ...edit, candidateProfileId: e.target.value })} required>
+                {(profiles.data?.items || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Воронка">
+              <Select value={edit.funnelId} onChange={(e) => setEdit({ ...edit, funnelId: e.target.value })} required>
+                {(funnels.data || []).map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Подразделение">
+              <Select value={edit.orgUnitId} onChange={(e) => setEdit({ ...edit, orgUnitId: e.target.value })}>
+                {!edit.orgUnitId ? <option value="">Не указано</option> : null}
+                {(orgUnits.data?.items || []).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Город"><Input value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} /></Field>
+          </div>
+          <ErrorText error={patch.error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>Отмена</Button>
+            <Button type="submit" disabled={patch.isPending}>Сохранить</Button>
+          </div>
+        </form>
+      </Modal>
     </AppShell>
   );
 }

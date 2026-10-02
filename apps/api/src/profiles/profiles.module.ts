@@ -15,7 +15,7 @@ export class ProfilesService {
     const where = {
       isActive: true,
       ...(query.search
-        ? { name: { contains: query.search } }
+        ? { name: { contains: query.search, mode: 'insensitive' as const } }
         : {}),
     };
     const [items, total] = await Promise.all([
@@ -29,10 +29,16 @@ export class ProfilesService {
     return this.prisma.candidateProfile.create({ data });
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: { name?: string; description?: string; department?: string; grade?: string; isActive?: boolean }) {
     const exists = await this.prisma.candidateProfile.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException();
-    return this.prisma.candidateProfile.update({ where: { id }, data });
+    const patch: any = {};
+    if (data.name !== undefined) patch.name = String(data.name).trim() || exists.name;
+    if (data.description !== undefined) patch.description = data.description || null;
+    if (data.department !== undefined) patch.department = data.department || null;
+    if (data.grade !== undefined) patch.grade = data.grade || null;
+    if (data.isActive !== undefined) patch.isActive = !!data.isActive;
+    return this.prisma.candidateProfile.update({ where: { id }, data: patch });
   }
 }
 
@@ -60,7 +66,7 @@ export class ProfilesController {
     return this.service.create(dto);
   }
 
-  @Roles(SystemRole.ADMIN, SystemRole.HR_BP)
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: Partial<CreateProfileDto> & { isActive?: boolean }) {
     return this.service.update(id, dto);

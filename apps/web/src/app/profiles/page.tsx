@@ -2,54 +2,99 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppShell, Button, Card, Empty, Input, Modal } from '@/components/ui';
+import { AppShell, Button, Card, ConfirmDelete, Empty, ErrorText, Field, Icon, Input, Modal, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
+
+type ProfileForm = { id?: string; name: string; department: string; grade: string; description: string };
 
 export default function ProfilesPage() {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<ProfileForm | null>(null);
   const [search, setSearch] = useState('');
   const list = useQuery({
     queryKey: ['profiles', search],
     queryFn: () => api<any>(`/profiles?pageSize=100${search ? `&search=${encodeURIComponent(search)}` : ''}`),
   });
-  const create = useMutation({
-    mutationFn: (body: any) => api('/profiles', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => { setOpen(false); qc.invalidateQueries({ queryKey: ['profiles'] }); },
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['profiles'] });
+    qc.invalidateQueries({ queryKey: ['profiles-mini'] });
+  };
+  const save = useMutation({
+    mutationFn: (f: ProfileForm) =>
+      api(f.id ? `/profiles/${f.id}` : '/profiles', {
+        method: f.id ? 'PATCH' : 'POST',
+        body: JSON.stringify({ name: f.name, department: f.department, grade: f.grade, description: f.description }),
+      }),
+    onSuccess: () => { setForm(null); refresh(); },
+  });
+  const archive = useMutation({
+    mutationFn: (id: string) => api(`/profiles/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive: false }) }),
+    onSuccess: () => { setForm(null); refresh(); },
   });
 
+  const items = list.data?.items || [];
   return (
-    <AppShell title="Профили кандидатов" subtitle="Шаблоны позиций для заявок и вакансий" actions={<Button onClick={() => setOpen(true)}>Добавить профиль</Button>}>
+    <AppShell
+      title="Профили кандидатов"
+      subtitle="Типовые должности: на их основе создаются заявки и вакансии"
+      actions={<Button onClick={() => setForm({ name: '', department: '', grade: '', description: '' })}><Icon name="plus" className="w-4 h-4" /> Новый профиль</Button>}
+    >
       <Card className="p-4 mb-4">
-        <Input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Поиск по названию" />
       </Card>
       <div className="space-y-3">
-        {(list.data?.items || []).map((p: any) => (
-          <Card key={p.id} className="p-4">
-            <div className="font-bold">{p.name}</div>
-            <div className="text-sm text-[var(--muted)] mt-1">{p.department || '—'} · {p.grade || 'без грейда'}</div>
-            {p.description ? <div className="text-sm mt-2">{p.description}</div> : null}
+        {items.map((p: any) => (
+          <Card key={p.id} className="p-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-bold">{p.name}</div>
+              <div className="text-sm text-[var(--sk-muted)] mt-1">{p.department || 'Подразделение не указано'} · {p.grade || 'без грейда'}</div>
+              {p.description ? <div className="text-sm mt-2 whitespace-pre-wrap">{p.description}</div> : null}
+            </div>
+            <Button
+              variant="ghost"
+              onClick={() => setForm({ id: p.id, name: p.name, department: p.department || '', grade: p.grade || '', description: p.description || '' })}
+            >
+              <Icon name="edit" className="w-4 h-4" /> Изменить
+            </Button>
           </Card>
         ))}
-        {!list.isLoading && !(list.data?.items || []).length ? <Empty text="Профилей нет" /> : null}
+        {!list.isLoading && !items.length ? <Empty text={search ? 'Ничего не найдено' : 'Профилей пока нет'} /> : null}
       </div>
-      <Modal open={open} title="Новый профиль" onClose={() => setOpen(false)}>
-        <form className="space-y-3" onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          create.mutate({
-            name: fd.get('name'),
-            department: fd.get('department') || undefined,
-            grade: fd.get('grade') || undefined,
-            description: fd.get('description') || undefined,
-          });
-        }}>
-          <Input name="name" placeholder="Название" required />
-          <Input name="department" placeholder="Подразделение" />
-          <Input name="grade" placeholder="Грейд" />
-          <Input name="description" placeholder="Описание" />
-          <Button type="submit" disabled={create.isPending}>Создать</Button>
-        </form>
+
+      <Modal open={!!form} title={form?.id ? 'Изменить профиль' : 'Новый профиль'} onClose={() => setForm(null)}>
+        {form ? (
+          <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); save.mutate(form); }}>
+            <Field label="Должность">
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Например: Водитель самосвала" required />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Направление">
+                <Input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Например: Транспорт" />
+              </Field>
+              <Field label="Грейд">
+                <Input value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} placeholder="Например: Специалист" />
+              </Field>
+            </div>
+            <Field label="Описание">
+              <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Обязанности и требования" />
+            </Field>
+            <ErrorText error={save.error || archive.error} />
+            <div className="flex flex-wrap justify-between gap-2">
+              {form.id ? (
+                <ConfirmDelete
+                  label="В архив"
+                  question="Убрать профиль в архив? Существующие заявки и вакансии останутся."
+                  onConfirm={() => archive.mutate(form.id!)}
+                  pending={archive.isPending}
+                />
+              ) : <span />}
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => setForm(null)}>Отмена</Button>
+                <Button type="submit" disabled={save.isPending}>Сохранить</Button>
+              </div>
+            </div>
+          </form>
+        ) : null}
       </Modal>
     </AppShell>
   );

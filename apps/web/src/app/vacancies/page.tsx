@@ -9,9 +9,10 @@ import { api } from '@/lib/api';
 export default function VacanciesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const { data, isLoading } = useQuery({
-    queryKey: ['vacancies'],
-    queryFn: () => api<any>('/vacancies?pageSize=50&topLevel=true'),
+    queryKey: ['vacancies', showArchived],
+    queryFn: () => api<any>(`/vacancies?pageSize=100&topLevel=true${showArchived ? '' : '&isActive=true'}`),
   });
   const profiles = useQuery({ queryKey: ['profiles-mini'], queryFn: () => api<any>('/profiles?pageSize=100') });
   const funnels = useQuery({ queryKey: ['funnels'], queryFn: () => api<any[]>('/funnels') });
@@ -29,7 +30,15 @@ export default function VacanciesPage() {
     <AppShell
       title="Вакансии"
       subtitle="Точка сбора кандидатов и публикаций"
-      actions={<Button onClick={() => setOpen(true)}>Новая вакансия</Button>}
+      actions={
+        <>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mr-2">
+            <input type="checkbox" className="w-4 h-4" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Показать архив
+          </label>
+          <Button onClick={() => setOpen(true)}>Новая вакансия</Button>
+        </>
+      }
     >
       <div className="grid md:grid-cols-2 gap-4">
         {(data?.items || []).map((v: any, i: number) => (

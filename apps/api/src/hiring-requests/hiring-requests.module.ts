@@ -44,15 +44,21 @@ export class HiringRequestsService {
     search?: string;
     status?: HiringRequestStatus;
     orgUnitId?: string;
+    candidateProfileId?: string;
+    priority?: Priority;
+    vacancyId?: string;
   }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where: Prisma.HiringRequestWhereInput = {
       AND: [
         query.search
-          ? { title: { contains: query.search } }
+          ? { title: { contains: query.search, mode: 'insensitive' } }
           : {},
         query.status ? { status: query.status } : {},
         query.orgUnitId ? { orgUnitId: query.orgUnitId } : {},
+        query.candidateProfileId ? { candidateProfileId: query.candidateProfileId } : {},
+        query.priority ? { priority: query.priority } : {},
+        query.vacancyId ? { vacancyId: query.vacancyId } : {},
       ],
     };
     const [items, total] = await Promise.all([
@@ -76,13 +82,16 @@ export class HiringRequestsService {
     // Counters by funnel stages for each request's vacancy
     const withCounters = await Promise.all(
       items.map(async (item) => {
-        if (!item.vacancyId) return { ...item, stageCounters: [] };
+        const hiredCount = await this.prisma.candidate.count({
+          where: { hiringRequestId: item.id, stage: { isFinal: true } },
+        });
+        if (!item.vacancyId) return { ...item, hiredCount, stageCounters: [] };
         const grouped = await this.prisma.candidate.groupBy({
           by: ['stageId'],
           where: { vacancyId: item.vacancyId, hiringRequestId: item.id },
           _count: true,
         });
-        return { ...item, stageCounters: grouped };
+        return { ...item, hiredCount, stageCounters: grouped };
       }),
     );
 
@@ -96,8 +105,8 @@ export class HiringRequestsService {
         orgUnit: true,
         candidateProfile: true,
         vacancy: { include: { funnel: { include: { stages: { orderBy: { order: 'asc' } } } } } },
-        hiringManager: true,
-        recruiter: true,
+        hiringManager: { select: { id: true, firstName: true, lastName: true } },
+        recruiter: { select: { id: true, firstName: true, lastName: true } },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         candidates: {
           include: { stage: true },
@@ -147,15 +156,37 @@ export class HiringRequestsService {
     });
   }
 
+  async update(id: string, data: Partial<CreateHiringRequestDto>) {
+    const request = await this.prisma.hiringRequest.findUnique({ where: { id } });
+    if (!request) throw new NotFoundException();
+    if (request.status === 'CLOSED' || request.status === 'CANCELLED') {
+      throw new BadRequestException('Закрытую или отменённую заявку изменить нельзя');
+    }
+    const patch: Prisma.HiringRequestUncheckedUpdateInput = {};
+    if (data.title !== undefined) {
+      const t = String(data.title).trim();
+      if (!t) throw new BadRequestException('Укажите название заявки');
+      patch.title = t;
+    }
+    if (data.orgUnitId) patch.orgUnitId = data.orgUnitId;
+    if (data.candidateProfileId) patch.candidateProfileId = data.candidateProfileId;
+    if (data.positionsCount !== undefined) patch.positionsCount = Math.max(1, Number(data.positionsCount) || 1);
+    if (data.city !== undefined) patch.city = data.city || null;
+    if (data.priority) patch.priority = data.priority;
+    if (data.comment !== undefined) patch.comment = data.comment || null;
+    if (data.hiringManagerId !== undefined) patch.hiringManagerId = data.hiringManagerId || null;
+    if (data.recruiterId !== undefined) patch.recruiterId = data.recruiterId || null;
+    await this.prisma.hiringRequest.update({ where: { id }, data: patch });
+    return this.get(id);
+  }
+
   async changeStatus(id: string, toStatus: HiringRequestStatus, user: AuthUser, comment?: string) {
     const request = await this.prisma.hiringRequest.findUnique({ where: { id } });
     if (!request) throw new NotFoundException();
 
     const allowed = HIRING_REQUEST_TRANSITIONS[request.status as keyof typeof HIRING_REQUEST_TRANSITIONS] || [];
     if (!allowed.includes(toStatus as any)) {
-      throw new BadRequestException(
-        `Переход ${request.status} → ${toStatus} не разрешён`,
-      );
+      throw new BadRequestException('Такой переход статуса для заявки недоступен');
     }
 
     if (toStatus === 'APPROVED_HR_BP' || toStatus === 'REJECTED_HR_BP') {
@@ -293,8 +324,18 @@ export class HiringRequestsController {
     @Query('search') search?: string,
     @Query('status') status?: HiringRequestStatus,
     @Query('orgUnitId') orgUnitId?: string,
+    @Query('candidateProfileId') candidateProfileId?: string,
+    @Query('priority') priority?: Priority,
+    @Query('vacancyId') vacancyId?: string,
   ) {
-    return this.service.list({ page, pageSize, search, status, orgUnitId });
+    return this.service.list({
+      page, pageSize, search,
+      status: status || undefined,
+      orgUnitId: orgUnitId || undefined,
+      candidateProfileId: candidateProfileId || undefined,
+      priority: priority || undefined,
+      vacancyId: vacancyId || undefined,
+    });
   }
 
   @Get(':id')
@@ -312,6 +353,18 @@ export class HiringRequestsController {
   @Post()
   create(@Body() dto: CreateHiringRequestDto) {
     return this.service.create(dto);
+  }
+
+  @Roles(
+    SystemRole.ADMIN,
+    SystemRole.HR_BP,
+    SystemRole.RECRUITMENT_LEAD,
+    SystemRole.HIRING_MANAGER,
+    SystemRole.RECRUITER,
+  )
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: Partial<CreateHiringRequestDto>) {
+    return this.service.update(id, dto);
   }
 
   @Post(':id/status')

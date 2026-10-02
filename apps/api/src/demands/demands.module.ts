@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, Patch, Post, Query, Module, Injectable, NotFoundException,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query, Module, Injectable, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
@@ -98,6 +98,15 @@ export class DemandsService {
     if (!item) throw new NotFoundException();
     return item;
   }
+
+  async remove(id: string) {
+    await this.get(id);
+    await this.prisma.$transaction([
+      this.prisma.hiringRequest.updateMany({ where: { demandId: id }, data: { demandId: null } }),
+      this.prisma.demand.delete({ where: { id } }),
+    ]);
+    return { ok: true };
+  }
 }
 
 class UpsertDemandDto {
@@ -130,16 +139,25 @@ export class DemandsController {
     return this.service.upsert(dto);
   }
 
-  @Roles(SystemRole.ADMIN, SystemRole.HR_BP)
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD)
   @Patch(':id')
   async patch(@Param('id') id: string, @Body() dto: { positionsCount?: number; comment?: string }) {
     const current = await this.service.get(id);
+    const positionsCount = dto.positionsCount !== undefined ? Number(dto.positionsCount) : current.positionsCount;
+    if (!Number.isInteger(positionsCount) || positionsCount < 0) throw new BadRequestException('Количество позиций должно быть целым числом от 0');
     return this.service.upsert({
       orgUnitId: current.orgUnitId,
       candidateProfileId: current.candidateProfileId,
-      positionsCount: dto.positionsCount ?? current.positionsCount,
-      comment: dto.comment ?? current.comment ?? undefined,
+      positionsCount,
+      comment: dto.comment !== undefined ? dto.comment : current.comment ?? undefined,
+      autoCreateRequest: false,
     });
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.HR_BP)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }
 

@@ -8,6 +8,14 @@ import { pageResult, paginate } from '../common/pagination';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
+  directory() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, firstName: true, lastName: true, middleName: true, role: true },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+  }
+
   async list(query: { page?: number; pageSize?: number; search?: string; role?: SystemRole }) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const where: Prisma.UserWhereInput = {

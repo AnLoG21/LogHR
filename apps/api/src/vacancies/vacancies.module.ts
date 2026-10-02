@@ -216,6 +216,8 @@ export class VacanciesService {
     isActive: boolean;
     isPublicApply: boolean;
     funnelId: string;
+    orgUnitId: string | null;
+    candidateProfileId: string;
     extra: Record<string, unknown>;
   }>) {
     const exists = await this.prisma.vacancy.findUnique({ where: { id } });
@@ -244,6 +246,8 @@ export class VacanciesService {
         ...(data.isActive != null ? { isActive: data.isActive } : {}),
         ...(data.isPublicApply != null ? { isPublicApply: data.isPublicApply } : {}),
         ...(data.funnelId != null ? { funnelId: data.funnelId } : {}),
+        ...(data.orgUnitId ? { orgUnitId: data.orgUnitId } : {}),
+        ...(data.candidateProfileId ? { candidateProfileId: data.candidateProfileId } : {}),
         ...(data.extra != null ? { extra: data.extra as Prisma.InputJsonValue } : {}),
       },
     });
