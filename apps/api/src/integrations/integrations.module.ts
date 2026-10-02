@@ -14,7 +14,6 @@ import { hhUserAgent, resolveHhToken, withHhUser } from './hh-token';
 import { MaxBotService } from './max-bot.service';
 import { MangoService } from './mango.service';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { AuditModule } from '../audit/audit.module';
 
 @Injectable()
 export class IntegrationsService {

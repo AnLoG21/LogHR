@@ -56,7 +56,6 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     private prisma: PrismaService,
     private storage: StorageService,
     private notifications: NotificationsService,
-    private audit: AuditService,
   ) {}
 
   onModuleInit() {
