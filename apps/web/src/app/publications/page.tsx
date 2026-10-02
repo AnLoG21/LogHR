@@ -346,9 +346,10 @@ function PublicationsInner() {
                 ))}
               </Select>
             </div>
-            <Button disabled={!vacancyId || publish.isPending} onClick={() => publish.mutate()}>Опубликовать</Button>
+            <Button disabled={!vacancyId || publish.isPending} onClick={() => { setPubError(''); publish.mutate(); }}>Опубликовать</Button>
             <Button variant="ghost" onClick={() => search.mutate()}>Автопоиск</Button>
           </Card>
+          {pubError ? <div className="mb-3 text-sm" style={{ color: 'var(--sk-text-danger)' }}>{pubError}</div> : null}
           {search.data ? (
             <Card className="p-4 mb-4 text-sm text-[var(--muted)]">
               Найдено: {(search.data as any).total ?? (search.data as any).items?.length ?? 'готово'}
