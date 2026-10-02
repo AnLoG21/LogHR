@@ -248,13 +248,14 @@ export class JobBoardsService {
     };
   }
 
-  hhStatus() {
-    const configured = !!process.env.HH_ACCESS_TOKEN;
+  async hhStatus() {
+    const { resolveHhToken } = await import('../integrations/hh-token');
+    const configured = !!(await resolveHhToken());
     return {
       configured,
       note: configured
         ? 'HeadHunter подключён — можно синхронизировать отклики и резюме'
-        : 'HeadHunter пока не подключён. Обратитесь к администратору.',
+        : 'HeadHunter пока не подключён. Откройте Администрирование → Подключить HeadHunter.',
     };
   }
 }

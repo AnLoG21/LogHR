@@ -27,12 +27,32 @@ function AdminInner() {
   const templates = useQuery({ queryKey: ['notif-templates'], queryFn: () => api<any>('/notifications/templates') });
   const pdn = useQuery({ queryKey: ['pdn'], queryFn: () => api<any>('/pdn') });
   const integrations = useQuery({ queryKey: ['integrations'], queryFn: () => api<any[]>('/integrations/status') });
+  const hh = useQuery({ queryKey: ['hh-status'], queryFn: () => api<any>('/integrations/hh/status') });
   const [importMsg, setImportMsg] = useState('');
+  const [hhMsg, setHhMsg] = useState(() => {
+    if (sp.get('hh') === 'connected') return 'HeadHunter успешно подключён';
+    if (sp.get('hh') === 'error') return sp.get('msg') || 'Не удалось подключить HeadHunter';
+    return '';
+  });
   const [userOpen, setUserOpen] = useState(false);
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: SystemRole.RECRUITER as string,
   });
   const [userMsg, setUserMsg] = useState('');
+
+  const connectHh = useMutation({
+    mutationFn: () => api<{ url: string }>('/integrations/hh/authorize'),
+    onSuccess: (res) => { window.location.href = res.url; },
+    onError: (e: any) => setHhMsg(e?.message || 'Не удалось начать подключение'),
+  });
+  const disconnectHh = useMutation({
+    mutationFn: () => api('/integrations/hh/disconnect', { method: 'POST', body: '{}' }),
+    onSuccess: () => {
+      setHhMsg('HeadHunter отключён');
+      qc.invalidateQueries({ queryKey: ['hh-status'] });
+      qc.invalidateQueries({ queryKey: ['integrations'] });
+    },
+  });
 
   const createUser = useMutation({
     mutationFn: () => api('/users', { method: 'POST', body: JSON.stringify(userForm) }),
@@ -137,6 +157,40 @@ function AdminInner() {
                 </tbody>
               </table>
             </div>
+          </Card>
+
+          <Card className="p-4 lg:col-span-2">
+            <div className="font-bold text-[var(--brand-primary)] mb-1">HeadHunter</div>
+            <div className="text-xs text-[var(--sk-muted)] mb-3">
+              Подключение аккаунта работодателя для публикации вакансий, импорта откликов и чата.
+              В кабинете разработчика HH укажите Redirect URI:
+              <code className="ml-1 break-all">{hh.data?.redirectUri || 'https://hrm.infiit.ru/api/integrations/hh/callback'}</code>
+            </div>
+            {hh.isLoading ? <div className="text-sm text-[var(--sk-muted)]">Проверяем…</div> : null}
+            {hh.data ? (
+              <div className="text-sm space-y-1 mb-3">
+                <div>Статус: <b>{hh.data.connected ? 'подключён' : 'не подключён'}</b>
+                  {hh.data.viaOAuth ? ' (через вход на hh.ru)' : hh.data.viaEnv ? ' (токен на сервере)' : ''}
+                </div>
+                {hh.data.employer?.name ? <div>Работодатель: {hh.data.employer.name}</div> : null}
+                {hh.data.manager?.email || hh.data.manager?.firstName ? (
+                  <div>Менеджер: {[hh.data.manager.lastName, hh.data.manager.firstName].filter(Boolean).join(' ')} {hh.data.manager.email ? `· ${hh.data.manager.email}` : ''}</div>
+                ) : null}
+                {hh.data.expiresAt ? <div className="text-xs text-[var(--sk-muted)]">Токен до {new Date(hh.data.expiresAt).toLocaleString('ru-RU')} (обновляется сам)</div> : null}
+                {!hh.data.clientConfigured ? (
+                  <div className="text-[var(--sk-danger)]">На сервере не заданы HH_CLIENT_ID и HH_CLIENT_SECRET — добавьте их в deploy/.env после одобрения заявки.</div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={!hh.data?.clientConfigured || connectHh.isPending} onClick={() => connectHh.mutate()}>
+                {hh.data?.connected ? 'Переподключить HeadHunter' : 'Подключить HeadHunter'}
+              </Button>
+              {hh.data?.viaOAuth ? (
+                <Button variant="ghost" disabled={disconnectHh.isPending} onClick={() => disconnectHh.mutate()}>Отключить</Button>
+              ) : null}
+            </div>
+            {hhMsg ? <div className={`text-sm mt-2 ${sp.get('hh') === 'error' ? 'text-[var(--sk-danger)]' : 'text-[var(--sk-text-success)]'}`}>{hhMsg}</div> : null}
           </Card>
 
           <Card className="p-4">

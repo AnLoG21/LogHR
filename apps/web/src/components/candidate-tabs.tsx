@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ASSIGNMENT_STATUS_LABELS,
@@ -284,6 +284,20 @@ function fileSize(n?: number | null) {
 
 export function AttachmentsTab({ candidate }: { candidate: any }) {
   const qc = useQueryClient();
+  const [msg, setMsg] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return api(`/candidates/${candidate.id}/attachments`, { method: 'POST', body: fd });
+    },
+    onSuccess: () => {
+      setMsg('');
+      qc.invalidateQueries({ queryKey: ['candidate', candidate.id] });
+    },
+    onError: (e: any) => setMsg(e?.message || 'Не удалось загрузить файл'),
+  });
   const remove = useMutation({
     mutationFn: (attId: string) => api(`/candidates/${candidate.id}/attachments/${attId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', candidate.id] }),
@@ -292,7 +306,7 @@ export function AttachmentsTab({ candidate }: { candidate: any }) {
   return (
     <div className="flex flex-col">
       {files.map((a) => {
-        const href = /^https?:\/\//.test(a.url || '') ? a.url : null;
+        const href = a.url?.startsWith('/') || /^https?:\/\//.test(a.url || '') ? a.url : null;
         return (
           <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--sk-line)] py-2.5 last:border-b-0">
             <div className="min-w-0">
@@ -311,8 +325,25 @@ export function AttachmentsTab({ candidate }: { candidate: any }) {
           </div>
         );
       })}
-      {!files.length ? <div className="text-sm text-[var(--sk-muted)] py-2">Вложений нет. Файлы резюме появляются здесь после импорта.</div> : null}
-      <ErrorText error={remove.error} />
+      {!files.length ? <div className="text-sm text-[var(--sk-muted)] py-2">Вложений пока нет</div> : null}
+      <div className="flex flex-wrap items-center gap-2 pt-3">
+        <input
+          ref={fileRef}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) upload.mutate(f);
+          }}
+        />
+        <Button type="button" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
+          <Icon name="plus" className="w-4 h-4" /> {upload.isPending ? 'Загружаем…' : 'Загрузить файл'}
+        </Button>
+        <span className="text-xs text-[var(--sk-muted)]">PDF, DOC, изображения — до 15 МБ</span>
+      </div>
+      {msg ? <div className="text-sm text-[var(--sk-danger)] mt-2">{msg}</div> : null}
+      <ErrorText error={remove.error || upload.error} />
     </div>
   );
 }

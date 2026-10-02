@@ -1,9 +1,11 @@
-import { Global, Injectable, Module, OnModuleInit, Logger } from '@nestjs/common';
+import { Global, Injectable, Module, OnModuleInit, Logger, Controller, Get, Param, Res, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { signS3Put } from '../job-boards/adapters';
+import { Public } from '../common/guards';
 
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -24,12 +26,22 @@ export class StorageService implements OnModuleInit {
     }
   }
 
+  absPath(key: string) {
+    const safe = path.basename(key);
+    return path.join(this.localDir, safe);
+  }
+
+  /** Public URL path served by API (Caddy proxies /api). */
+  publicUrl(key: string) {
+    return `/api/uploads/${encodeURIComponent(path.basename(key))}`;
+  }
+
   async upload(buffer: Buffer, fileName: string, mimeType?: string): Promise<{ url: string; key: string }> {
     const key = `${Date.now()}-${randomUUID()}-${fileName.replace(/[^\w.\-]+/g, '_')}`;
     if (this.useLocal) {
-      const full = path.join(this.localDir, key);
+      const full = this.absPath(key);
       fs.writeFileSync(full, buffer);
-      return { url: `/uploads/${key}`, key };
+      return { url: this.publicUrl(key), key };
     }
 
     const endpoint = this.config.get<string>('S3_ENDPOINT')!;
@@ -63,13 +75,47 @@ export class StorageService implements OnModuleInit {
     } catch (e: any) {
       this.logger.warn(`S3 upload failed, falling back to local: ${e.message}`);
       fs.mkdirSync(this.localDir, { recursive: true });
-      const full = path.join(this.localDir, key);
+      const full = this.absPath(key);
       fs.writeFileSync(full, buffer);
-      return { url: `/uploads/${key}`, key };
+      return { url: this.publicUrl(key), key };
     }
+  }
+
+  async deleteByUrl(url?: string | null) {
+    if (!url) return;
+    const m = url.match(/\/uploads\/([^/?#]+)/);
+    const key = m?.[1] ? decodeURIComponent(m[1]) : null;
+    if (!key) return;
+    try {
+      const full = this.absPath(key);
+      if (fs.existsSync(full)) fs.unlinkSync(full);
+    } catch (e: any) {
+      this.logger.warn(`delete file failed: ${e.message}`);
+    }
+  }
+
+  streamLocal(key: string, res: Response) {
+    const full = this.absPath(decodeURIComponent(key));
+    if (!fs.existsSync(full)) throw new NotFoundException();
+    return res.sendFile(full);
+  }
+}
+
+@Controller('uploads')
+export class UploadsController {
+  constructor(private storage: StorageService) {}
+
+  @Public()
+  @Get(':key')
+  file(@Param('key') key: string, @Res() res: Response) {
+    return this.storage.streamLocal(key, res);
   }
 }
 
 @Global()
-@Module({ providers: [StorageService], exports: [StorageService] })
+@Module({
+  controllers: [UploadsController],
+  providers: [StorageService],
+  exports: [StorageService],
+})
 export class StorageModule {}

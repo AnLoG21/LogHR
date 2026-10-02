@@ -11,7 +11,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:deploy": "prisma db push",
-    "prisma:seed": "ts-node --transpile-only prisma/seed.ts"
+    "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
+    "prisma:purge-demo": "node prisma/purge-demo.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

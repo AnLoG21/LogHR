@@ -1,13 +1,16 @@
-import { Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Module, Post, Headers, Param, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SystemRole } from '@prisma/client';
+import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public, Roles } from '../common/guards';
 import { aiProviders } from '../ai/ai.module';
+import { HhAuthService } from './hh-auth.service';
+import { hhUserAgent, resolveHhToken } from './hh-token';
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private hhAuth: HhAuthService) {}
 
   async status() {
     const rows = await this.prisma.integrationStatus.findMany({ orderBy: { code: 'asc' } });
@@ -23,8 +26,10 @@ export class IntegrationsService {
         redisOk = false;
       }
     }
+    const hhToken = await resolveHhToken();
+    const hhStatus = await this.hhAuth.status();
     const envMap: Record<string, boolean> = {
-      HH: !!process.env.HH_ACCESS_TOKEN,
+      HH: !!hhToken,
       SUPERJOB: !!process.env.SUPERJOB_TOKEN,
       AVITO: !!process.env.AVITO_TOKEN,
       ZARPLATA: !!process.env.ZARPLATA_TOKEN,
@@ -35,20 +40,22 @@ export class IntegrationsService {
       REDIS: redisOk,
       S3: process.env.STORAGE_MODE === 's3' && !!process.env.S3_ENDPOINT,
       AI: aiProviders().length > 0,
-      HH_CHAT: !!(process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN),
+      HH_CHAT: !!hhToken,
       DADATA: !!(process.env.DADATA_TOKEN || process.env.DADATA_API_KEY),
     };
     return rows.map((r) => {
       const live = !!envMap[r.code];
       let note = live ? 'подключено' : 'не подключено';
       if (r.code === 'REDIS' && !live) note = 'очередь недоступна';
-      if (r.code === 'HH' && !live) note = 'не подключено';
+      if (r.code === 'HH') note = hhStatus.note;
+      if (r.code === 'HH_CHAT') note = live ? 'доступен через HH' : 'нужно подключить HeadHunter';
       if (r.code === 'AI' && live) note = 'подключено';
       return {
         ...r,
         configured: r.configured || live,
         live,
         note,
+        ...(r.code === 'HH' ? { hh: hhStatus } : {}),
       };
     });
   }
@@ -117,9 +124,9 @@ export class IntegrationsService {
     };
   }
 
-  /** HH Chat: uses HH_CHAT_TOKEN or falls back to HH_ACCESS_TOKEN; loads negotiation messages */
+  /** HH Chat: uses OAuth token or HH_ACCESS_TOKEN / HH_CHAT_TOKEN */
   async hhChat(candidateId: string) {
-    const token = process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN;
+    const token = await resolveHhToken();
     if (!token) {
       return {
         configured: false,
@@ -159,7 +166,7 @@ export class IntegrationsService {
       const res = await fetch(`https://api.hh.ru/negotiations/${encodeURIComponent(negotiationId)}/messages`, {
         headers: {
           Authorization: `Bearer ${token}`,
-          'HH-User-Agent': process.env.HH_USER_AGENT || 'LogHR/1.0 (noreply@loghr.local)',
+          'HH-User-Agent': hhUserAgent(),
           Accept: 'application/json',
         },
       });
@@ -208,7 +215,7 @@ export class IntegrationsService {
   }
 
   async sendHhChat(candidateId: string, text: string) {
-    const token = process.env.HH_CHAT_TOKEN || process.env.HH_ACCESS_TOKEN;
+    const token = await resolveHhToken();
     if (!token) {
       return { ok: false, configured: false, note: 'Чат HeadHunter не подключён' };
     }
@@ -231,7 +238,7 @@ export class IntegrationsService {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'HH-User-Agent': process.env.HH_USER_AGENT || 'LogHR/1.0 (noreply@loghr.local)',
+        'HH-User-Agent': hhUserAgent(),
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: 'application/json',
       },
@@ -289,13 +296,54 @@ export class IntegrationsService {
 @ApiTags('integrations')
 @Controller('integrations')
 export class IntegrationsController {
-  constructor(private service: IntegrationsService) {}
+  constructor(private service: IntegrationsService, private hhAuth: HhAuthService) {}
 
   @ApiBearerAuth()
   @Get('status')
   async status() {
     await this.service.ensureDefaults();
     return this.service.status();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN)
+  @Get('hh/status')
+  hhStatus() {
+    return this.hhAuth.status();
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN)
+  @Get('hh/authorize')
+  async hhAuthorize() {
+    return this.hhAuth.authorizeUrl();
+  }
+
+  @Public()
+  @Get('hh/callback')
+  async hhCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') error: string,
+    @Res() res: Response,
+  ) {
+    const web = this.hhAuth.publicBaseUrl();
+    if (error) {
+      return res.redirect(`${web}/admin?hh=error&msg=${encodeURIComponent(error)}`);
+    }
+    try {
+      await this.hhAuth.handleCallback(code, state);
+      return res.redirect(`${web}/admin?hh=connected`);
+    } catch (e: any) {
+      return res.redirect(`${web}/admin?hh=error&msg=${encodeURIComponent(e?.message || 'Ошибка HH')}`);
+    }
+  }
+
+  @ApiBearerAuth()
+  @Roles(SystemRole.ADMIN)
+  @Post('hh/disconnect')
+  hhDisconnect() {
+    return this.hhAuth.disconnect();
   }
 
   @Public()
@@ -329,5 +377,9 @@ export class IntegrationsController {
   }
 }
 
-@Module({ controllers: [IntegrationsController], providers: [IntegrationsService], exports: [IntegrationsService] })
+@Module({
+  controllers: [IntegrationsController],
+  providers: [IntegrationsService, HhAuthService],
+  exports: [IntegrationsService, HhAuthService],
+})
 export class IntegrationsModule {}

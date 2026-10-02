@@ -35,10 +35,11 @@ import { AuthUser, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
 import { assertCanMoveToStage } from '../funnels/transitions';
+import { StorageService } from '../storage/storage.module';
 
 @Injectable()
 export class CandidatesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private storage: StorageService) {}
 
   async list(query: {
     page?: number;
@@ -701,9 +702,28 @@ export class CandidatesService {
     return this.get(id);
   }
 
+  async addAttachment(id: string, file: Express.Multer.File) {
+    await this.ensureExists(id);
+    if (!file?.buffer?.length) throw new BadRequestException('Выберите файл');
+    const max = Number(process.env.UPLOAD_MAX_BYTES || 15 * 1024 * 1024);
+    if (file.size > max) throw new BadRequestException(`Файл больше ${Math.round(max / 1024 / 1024)} МБ`);
+    const uploaded = await this.storage.upload(file.buffer, file.originalname || 'file', file.mimetype);
+    return this.prisma.attachment.create({
+      data: {
+        candidateId: id,
+        fileName: file.originalname || uploaded.key,
+        mimeType: file.mimetype || 'application/octet-stream',
+        url: uploaded.url,
+        size: file.size,
+      },
+    });
+  }
+
   async removeAttachment(id: string, attachmentId: string) {
-    const res = await this.prisma.attachment.deleteMany({ where: { id: attachmentId, candidateId: id } });
-    if (!res.count) throw new NotFoundException();
+    const att = await this.prisma.attachment.findFirst({ where: { id: attachmentId, candidateId: id } });
+    if (!att) throw new NotFoundException();
+    await this.storage.deleteByUrl(att.url);
+    await this.prisma.attachment.delete({ where: { id: att.id } });
     return { ok: true };
   }
 
@@ -866,6 +886,16 @@ export class CandidatesController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.addComment(id, body, user);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)
+  @Post(':id/attachments')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  uploadAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.addAttachment(id, file);
   }
 
   @Roles(SystemRole.ADMIN, SystemRole.RECRUITER, SystemRole.RECRUITMENT_LEAD, SystemRole.HR_BP)

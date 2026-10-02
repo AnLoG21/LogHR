@@ -80,53 +80,104 @@ class MockAdapter implements JobBoardPort {
 }
 
 class HhAdapter implements JobBoardPort {
-  private token = process.env.HH_ACCESS_TOKEN;
-  private ua = process.env.HH_USER_AGENT || 'LogHR/1.0 (admin@loghr.local)';
-  configured() { return !!this.token; }
+  configured() {
+    return !!(process.env.HH_ACCESS_TOKEN || process.env.HH_CLIENT_ID);
+  }
 
-  private headers() {
+  private async headers() {
+    const { resolveHhToken, hhUserAgent } = await import('../integrations/hh-token');
+    const token = await resolveHhToken();
+    if (!token) throw new Error('HeadHunter не подключён. Откройте Администрирование → Подключить HeadHunter.');
     return {
-      Authorization: `Bearer ${this.token}`,
-      'HH-User-Agent': this.ua,
+      Authorization: `Bearer ${token}`,
+      'HH-User-Agent': hhUserAgent(),
       'Content-Type': 'application/json',
+      Accept: 'application/json',
     } as Record<string, string>;
   }
 
+  private async resolveAreaId(city?: string): Promise<string> {
+    if (!city?.trim()) return process.env.HH_DEFAULT_AREA_ID || '113'; // Россия
+    try {
+      const headers = await this.headers();
+      const res = await fetch(`https://api.hh.ru/suggests/areas?text=${encodeURIComponent(city.trim())}`, {
+        headers: { Authorization: headers.Authorization, 'HH-User-Agent': headers['HH-User-Agent'], Accept: 'application/json' },
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const id = data?.items?.[0]?.id;
+        if (id) return String(id);
+      }
+    } catch { /* fallback */ }
+    return process.env.HH_DEFAULT_AREA_ID || '113';
+  }
+
   async publish(input: JobBoardPublishInput): Promise<JobBoardPublishResult> {
-    if (!this.token) {
+    let headers: Record<string, string>;
+    try {
+      headers = await this.headers();
+    } catch {
       return new MockAdapter('HH').publish(input);
     }
+    const areaId = await this.resolveAreaId(input.city);
+    const roleId = process.env.HH_DEFAULT_PROFESSIONAL_ROLE_ID || '40'; // другое
+    const description = (input.description || input.title || '').trim();
+    const htmlDescription = description.includes('<') ? description : `<p>${description.replace(/\n/g, '<br/>')}</p>`;
+    const body = {
+      name: input.title.slice(0, 100),
+      description: htmlDescription,
+      area: { id: areaId },
+      type: { id: 'open' },
+      billing_type: { id: process.env.HH_BILLING_TYPE || 'standard' },
+      professional_roles: [{ id: roleId }],
+      experience: { id: 'noExperience' },
+      employment: { id: 'full' },
+      schedule: { id: 'fullDay' },
+      accept_handicapped: false,
+      accept_kids: false,
+      allow_messages: true,
+      response_letter_required: false,
+      response_notifications: true,
+    };
     const res = await fetch('https://api.hh.ru/vacancies', {
       method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        name: input.title,
-        description: input.description,
-        area: { id: '1' },
-        type: { id: 'open' },
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`HH publish failed: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HH не принял вакансию (${res.status}): ${errText.slice(0, 500)}`);
+    }
     const data: any = await res.json();
     return { externalId: String(data.id), url: data.alternate_url };
   }
 
   async search(input: JobBoardSearchInput) {
-    if (!this.token) return new MockAdapter('HH').search(input);
+    let headers: Record<string, string>;
+    try {
+      headers = await this.headers();
+    } catch {
+      return new MockAdapter('HH').search(input);
+    }
     const params = new URLSearchParams();
     if (input.text) params.set('text', input.text);
     if (input.area) params.set('area', input.area);
     params.set('page', String(input.page || 0));
     params.set('per_page', '20');
-    const res = await fetch(`https://api.hh.ru/resumes?${params}`, { headers: this.headers() });
+    const res = await fetch(`https://api.hh.ru/resumes?${params}`, { headers });
     if (!res.ok) throw new Error(`HH search failed: ${res.status}`);
     const data: any = await res.json();
     return { items: data.items || [], total: data.found || 0 };
   }
 
-  /** Load employer negotiations (отклики). vacancyExternalId optional — if empty, caller should loop vacancies. */
+  /** Load employer negotiations (отклики). */
   async fetchResponses(vacancyExternalId?: string): Promise<JobBoardResponseItem[]> {
-    if (!this.token) return [];
+    let headers: Record<string, string>;
+    try {
+      headers = await this.headers();
+    } catch {
+      return [];
+    }
     if (!vacancyExternalId) return [];
     const out: JobBoardResponseItem[] = [];
     for (let page = 0; page < 10; page++) {
@@ -135,7 +186,7 @@ class HhAdapter implements JobBoardPort {
         page: String(page),
         per_page: '50',
       });
-      const res = await fetch(`https://api.hh.ru/negotiations?${params}`, { headers: this.headers() });
+      const res = await fetch(`https://api.hh.ru/negotiations?${params}`, { headers });
       if (!res.ok) break;
       const data: any = await res.json();
       const items = data.items || [];
@@ -151,8 +202,14 @@ class HhAdapter implements JobBoardPort {
   }
 
   async fetchResume(resumeId: string): Promise<JobBoardResponseItem | null> {
-    if (!this.token || !resumeId) return null;
-    const res = await fetch(`https://api.hh.ru/resumes/${resumeId}`, { headers: this.headers() });
+    let headers: Record<string, string>;
+    try {
+      headers = await this.headers();
+    } catch {
+      return null;
+    }
+    if (!resumeId) return null;
+    const res = await fetch(`https://api.hh.ru/resumes/${resumeId}`, { headers });
     if (!res.ok) return null;
     const resume: any = await res.json();
     return this.mapResume(resume, resumeId, undefined, resume);
