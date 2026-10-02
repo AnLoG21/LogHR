@@ -346,6 +346,11 @@ export function AdvancedFiltersModal({
                 ))}
               </Select>
             </div>
+            <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 10 }}>
+              {mode === 'include'
+                ? 'Учитывается текущий этап и история («был на этапе»).'
+                : 'Исключаются кандидаты с этими этапами сейчас или в истории.'}
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, maxHeight: 320, overflow: 'auto' }}>
               {stages.map((s: any) => {

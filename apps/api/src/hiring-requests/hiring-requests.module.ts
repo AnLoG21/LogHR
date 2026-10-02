@@ -233,10 +233,37 @@ export class HiringRequestsService {
     };
     const code = templateByStatus[toStatus];
     if (code) {
-      const hrbp = await this.prisma.user.findFirst({ where: { role: 'HR_BP', isActive: true } });
-      const to = hrbp?.email || user.email;
-      await this.queues.enqueueNotification(code, { to, title: updated.title });
-      await this.notifications.sendEmail(to, code, { title: updated.title });
+      const full = await this.prisma.hiringRequest.findUnique({
+        where: { id },
+        select: {
+          title: true,
+          hiringManager: { select: { email: true } },
+          recruiter: { select: { email: true } },
+        },
+      });
+      const recipients = new Set<string>();
+      const add = (e?: string | null) => {
+        const v = String(e || '').trim().toLowerCase();
+        if (v && v.includes('@')) recipients.add(v);
+      };
+      if (toStatus === 'PENDING_HR_BP') {
+        const hrbps = await this.prisma.user.findMany({
+          where: { role: 'HR_BP', isActive: true },
+          select: { email: true },
+          take: 20,
+        });
+        for (const h of hrbps) add(h.email);
+      } else {
+        add(full?.hiringManager?.email);
+        add(full?.recruiter?.email);
+      }
+      if (!recipients.size) add(user.email);
+      const title = full?.title || updated.title;
+      for (const to of recipients) {
+        if (to === user.email.toLowerCase() && recipients.size > 1) continue;
+        await this.queues.enqueueNotification(code, { to, title });
+        await this.notifications.sendEmail(to, code, { title });
+      }
     }
 
     return this.get(id);

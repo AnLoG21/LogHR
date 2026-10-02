@@ -160,7 +160,7 @@ class HhAdapter implements JobBoardPort {
     return { items: data.items || [], total: data.found || 0 };
   }
 
-  /** Load employer negotiations (отклики). */
+  /** Import отклики только из папки HH «Неразобранные» (collection `response`). */
   async fetchResponses(vacancyExternalId?: string): Promise<JobBoardResponseItem[]> {
     let headers: Record<string, string>;
     try {
@@ -169,6 +169,41 @@ class HhAdapter implements JobBoardPort {
       return [];
     }
     if (!vacancyExternalId) return [];
+
+    // Resolve collection url for «Неразобранные» (id: response)
+    let collectionPath = `/negotiations/response`;
+    try {
+      const colRes = await fetch(
+        `https://api.hh.ru/negotiations?${new URLSearchParams({ vacancy_id: vacancyExternalId })}`,
+        { headers },
+      );
+      if (colRes.ok) {
+        const colData: any = await colRes.json();
+        const collections = Array.isArray(colData?.collections)
+          ? colData.collections
+          : Array.isArray(colData?.items)
+            ? colData.items
+            : [];
+        const responseCol =
+          collections.find((c: any) => c?.id === 'response') ||
+          collections.find((c: any) => /неразбор/i.test(String(c?.name || '')));
+        if (responseCol?.url) {
+          try {
+            const u = new URL(responseCol.url);
+            collectionPath = u.pathname;
+          } catch {
+            collectionPath = String(responseCol.url).startsWith('/')
+              ? String(responseCol.url)
+              : `/negotiations/response`;
+          }
+        } else if (responseCol?.id) {
+          collectionPath = `/negotiations/${responseCol.id}`;
+        }
+      }
+    } catch {
+      /* fallback to /negotiations/response */
+    }
+
     const out: JobBoardResponseItem[] = [];
     for (let page = 0; page < 10; page++) {
       const params = new URLSearchParams({
@@ -176,7 +211,7 @@ class HhAdapter implements JobBoardPort {
         page: String(page),
         per_page: '50',
       });
-      const res = await fetch(`https://api.hh.ru/negotiations?${params}`, { headers });
+      const res = await fetch(`https://api.hh.ru${collectionPath}?${params}`, { headers });
       if (!res.ok) break;
       const data: any = await res.json();
       const items = data.items || [];

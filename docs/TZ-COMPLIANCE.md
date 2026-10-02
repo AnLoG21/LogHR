@@ -17,9 +17,9 @@
 - [x] **DONE** — Смена этапа кандидата + история + 5 форм смены статуса (UI)
 - [x] **DONE** — Оффер: статусы ТЗ, внутренний UI, public `/public/offer/{token}`, PDF
 - [x] **DONE** — Таск-трекер «Мои задачи» (кандидат / заявка)
-- [~] **PARTIAL** — Счётчики этапов на заявке/вакансии есть; приоритет заявки в модели есть, UI фильтра приоритета на списке — заглушка (`defaultValue`)
-- [~] **PARTIAL** — Transitions воронки хранятся JSON, UI редактирует; **enforce по ролям при смене этапа не жёсткий**
-- [~] **PARTIAL** — Уведомления по статусам: шаблоны есть (21), отправка SMTP/MOCKED; не полный event-matrix Skillaz
+- [x] **DONE** — Счётчики этапов на заявке/вакансии есть; приоритет заявки в модели есть, **фильтр приоритета на списке заявок** работает
+- [x] **DONE** — Transitions воронки хранятся JSON, UI редактирует роли на этапы; **enforce по ролям при смене этапа** (`assertCanMoveToStage` / `canMoveToStage`)
+- [~] **PARTIAL** — Уведомления по статусам: шаблоны есть; матрица событий: stage / request / offer / check wired (SMTP или MOCKED)
 - [x] **DONE** — Публичная форма отклика `/public/apply/{vacancyId}` (`isPublicApply`)
 - [-] **OUT_OF_SCOPE** — Онбординг / адаптация / LMS / OKR / 360° (PDF КП Skillaz HR-suite, не ATS-тариф)
 
@@ -32,7 +32,7 @@
 - [x] **DONE** — Фильтры: вакансия, заявка, орг., этапы, источники, тип добавления, теги+даты, встречи, резюме-параметры, проверки/офферы, ПДн
 - [x] **DONE** — Форма создания кандидата (1), дедуп `POST /candidates/dedupe/check`
 - [x] **DONE** — Теги: 3 категории / ~15 тегов (seed)
-- [~] **PARTIAL** — Фильтр «по процессу с учётом истории» — фильтр по *текущему* этапу; история пишется, но «был на этапе X» не полноценный критерий
+- [x] **DONE** — Фильтр «по процессу с учётом истории»: выбранные этапы = текущий ИЛИ был в `CandidateStatusHistory`
 - [~] **PARTIAL** — Digital-интервью панель / ссылки — оценка через assessments, отдельной панели digital-interview нет
 - [~] **PARTIAL** — Дедуп: проверка дублей есть; стратегия «одна карточка на вакансию/компанию» + merge — упрощённая
 
@@ -61,7 +61,7 @@
 - [x] **DONE** — Авторазмещения: `AutoPublishRule` + worker/cron 5м + UI вкладка
 - [~] **PARTIAL** — SJ / Avito / Zarplata: adapters token-gated или disabled; без ключей — disabled, не live E2E
 - [~] **PARTIAL** — Автопоиски: UI вкладка + `POST /job-boards/search`; без купленного доступа — mock/disabled
-- [~] **PARTIAL** — Сбор откликов `sync-responses` — каркас; HH «неразобранные» не доведён до прод-паритета
+- [x] **DONE** — Сбор откликов `sync-responses` — HH только из папки «Неразобранные» (`/negotiations/response`); manual sync через личный HH-токен (`withHhUser`)
 - [~] **PARTIAL** — Регион публикации: `regionHint` (город вакансии), без внешнего geo 95%
 - [-] **OUT_OF_SCOPE** / **MISSING** — Факультетус, Буду, Rabota.ru/Farpost/Joblab deep adapters — в enum частично (RABOTA/TRUDVSEM = DisabledAdapter)
 

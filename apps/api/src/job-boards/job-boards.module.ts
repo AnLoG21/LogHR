@@ -309,8 +309,11 @@ export class JobBoardsController {
   }
 
   @Post('sync-responses')
-  sync(@Body() dto: { board?: JobBoard; vacancyExternalId?: string }) {
-    return this.service.syncResponses(dto.board || 'HH', dto.vacancyExternalId);
+  sync(
+    @Body() dto: { board?: JobBoard; vacancyExternalId?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return withHhUser(user?.id, () => this.service.syncResponses(dto.board || 'HH', dto.vacancyExternalId));
   }
 
   @Public()

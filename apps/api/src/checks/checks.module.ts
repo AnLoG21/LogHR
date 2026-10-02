@@ -10,10 +10,15 @@ import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
 import { AuditModule, AuditService } from '../audit/audit.module';
+import { NotificationsModule, NotificationsService } from '../notifications/notifications.module';
 
 @Injectable()
 export class ChecksService {
-  constructor(private prisma: PrismaService, private audit: AuditService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private notifications: NotificationsService,
+  ) {}
 
   async list(
     query: { page?: number; pageSize?: number; type?: CheckType; status?: CheckStatus },
@@ -65,6 +70,26 @@ export class ChecksService {
       entityId: check.id,
       meta: { candidateId: data.candidateId, type: data.type },
     });
+
+    const candidate = await this.prisma.candidate.findUnique({
+      where: { id: data.candidateId },
+      select: { firstName: true, lastName: true },
+    });
+    const name = candidate ? [candidate.lastName, candidate.firstName].filter(Boolean).join(' ') : 'кандидат';
+    let assigneeEmail: string | undefined;
+    if (check.assigneeId) {
+      const a = await this.prisma.user.findUnique({ where: { id: check.assigneeId }, select: { email: true } });
+      assigneeEmail = a?.email;
+    } else if (data.type === 'SECURITY') {
+      const sec = await this.prisma.user.findFirst({
+        where: { role: 'SECURITY', isActive: true },
+        select: { email: true },
+      });
+      assigneeEmail = sec?.email;
+    }
+    if (assigneeEmail && assigneeEmail !== user.email) {
+      void this.notifications.sendEmail(assigneeEmail, 'CHECK_ASSIGNED', { name }).catch(() => undefined);
+    }
     return check;
   }
 
@@ -72,6 +97,21 @@ export class ChecksService {
     const updated = await this.prisma.check.update({
       where: { id },
       data: { status, comment, ...(formData ? { formData } : {}) },
+      include: {
+        candidate: {
+          select: {
+            firstName: true,
+            lastName: true,
+            assignee: { select: { email: true } },
+            hiringRequest: {
+              select: {
+                recruiter: { select: { email: true } },
+                hiringManager: { select: { email: true } },
+              },
+            },
+          },
+        },
+      },
     });
     await this.audit.log({
       actorId: user.id,
@@ -81,6 +121,23 @@ export class ChecksService {
       entityId: id,
       meta: { status, candidateId: updated.candidateId, comment },
     });
+
+    if (status === 'APPROVED' || status === 'REJECTED') {
+      const name = [updated.candidate.lastName, updated.candidate.firstName].filter(Boolean).join(' ');
+      const staff = new Set<string>();
+      const add = (e?: string | null) => {
+        const v = String(e || '').trim().toLowerCase();
+        if (v && v.includes('@') && v !== user.email.toLowerCase()) staff.add(v);
+      };
+      add(updated.candidate.assignee?.email);
+      add(updated.candidate.hiringRequest?.recruiter?.email);
+      add(updated.candidate.hiringRequest?.hiringManager?.email);
+      for (const to of staff) {
+        void this.notifications
+          .sendEmail(to, 'CHECK_RESULT', { name, status: status === 'APPROVED' ? 'одобрена' : 'отклонена' })
+          .catch(() => undefined);
+      }
+    }
     return updated;
   }
 
@@ -130,14 +187,46 @@ export class ChecksService {
     if (decision === 'APPROVED' || decision === 'YES' || formData?.approved === true) status = 'APPROVED';
     if (decision === 'REJECTED' || decision === 'NO' || formData?.approved === false) status = 'REJECTED';
     const comment = formData?.notes || formData?.comment || check.comment;
-    return this.prisma.check.update({
+    const updated = await this.prisma.check.update({
       where: { id: check.id },
       data: {
         formData: { ...(typeof check.formData === 'object' && check.formData ? check.formData : {}), ...formData },
         status,
         comment,
       },
+      include: {
+        candidate: {
+          select: {
+            firstName: true,
+            lastName: true,
+            assignee: { select: { email: true } },
+            hiringRequest: {
+              select: {
+                recruiter: { select: { email: true } },
+                hiringManager: { select: { email: true } },
+              },
+            },
+          },
+        },
+      },
     });
+    if (status === 'APPROVED' || status === 'REJECTED') {
+      const name = [updated.candidate.lastName, updated.candidate.firstName].filter(Boolean).join(' ');
+      const staff = new Set<string>();
+      const add = (e?: string | null) => {
+        const v = String(e || '').trim().toLowerCase();
+        if (v && v.includes('@')) staff.add(v);
+      };
+      add(updated.candidate.assignee?.email);
+      add(updated.candidate.hiringRequest?.recruiter?.email);
+      add(updated.candidate.hiringRequest?.hiringManager?.email);
+      for (const to of staff) {
+        void this.notifications
+          .sendEmail(to, 'CHECK_RESULT', { name, status: status === 'APPROVED' ? 'одобрена' : 'отклонена' })
+          .catch(() => undefined);
+      }
+    }
+    return updated;
   }
 }
 
@@ -192,7 +281,7 @@ export class ChecksController {
 }
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, NotificationsModule],
   controllers: [ChecksController],
   providers: [ChecksService],
   exports: [ChecksService],

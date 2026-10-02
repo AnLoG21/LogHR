@@ -137,8 +137,23 @@ export class CandidatesService {
     }
     if (query.hiringRequestId) and.push({ hiringRequestId: query.hiringRequestId });
     if (query.stageId) and.push({ stageId: query.stageId });
-    if (stageIds.length) and.push({ stageId: { in: stageIds } });
-    if (excludeStageIds.length) and.push({ OR: [{ stageId: { notIn: excludeStageIds } }, { stageId: null }] });
+    if (stageIds.length) {
+      // «По процессу с учётом истории»: текущий этап ИЛИ когда-либо был на выбранном
+      and.push({
+        OR: [
+          { stageId: { in: stageIds } },
+          { statusHistory: { some: { stageId: { in: stageIds } } } },
+        ],
+      });
+    }
+    if (excludeStageIds.length) {
+      and.push({
+        AND: [
+          { OR: [{ stageId: { notIn: excludeStageIds } }, { stageId: null }] },
+          { NOT: { statusHistory: { some: { stageId: { in: excludeStageIds } } } } },
+        ],
+      });
+    }
     if (query.source) and.push({ source: query.source });
     if (sources.length) and.push({ source: { in: sources } });
     if (query.orgUnitId) {

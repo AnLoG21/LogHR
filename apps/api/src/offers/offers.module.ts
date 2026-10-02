@@ -12,10 +12,15 @@ import { AuthUser, Public, Roles } from '../common/guards';
 import { pageResult, paginate } from '../common/pagination';
 import { visibilityWhere } from '../common/visibility';
 import { AuditModule, AuditService } from '../audit/audit.module';
+import { NotificationsModule, NotificationsService } from '../notifications/notifications.module';
 
 @Injectable()
 export class OffersService {
-  constructor(private prisma: PrismaService, private audit: AuditService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private notifications: NotificationsService,
+  ) {}
 
   async list(query: { page?: number; pageSize?: number; status?: OfferStatus }, user: AuthUser) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
@@ -117,7 +122,27 @@ export class OffersService {
 
   async changeStatus(id: string, status: OfferStatus, user: AuthUser) {
     if (!Object.values(OfferStatus).includes(status)) throw new BadRequestException('Неизвестный статус оффера');
-    const updated = await this.prisma.offer.update({ where: { id }, data: { status } });
+    const updated = await this.prisma.offer.update({
+      where: { id },
+      data: { status },
+      include: {
+        candidate: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            assignee: { select: { email: true } },
+            hiringRequest: {
+              select: {
+                recruiter: { select: { email: true } },
+                hiringManager: { select: { email: true } },
+              },
+            },
+          },
+        },
+      },
+    });
     await this.audit.log({
       actorId: user.id,
       actorEmail: user.email,
@@ -126,7 +151,58 @@ export class OffersService {
       entityId: id,
       meta: { status, candidateId: updated.candidateId },
     });
+    void this.notifyOfferStatus(updated, status, user.email).catch(() => undefined);
     return updated;
+  }
+
+  private async notifyOfferStatus(
+    offer: {
+      id: string;
+      externalToken: string | null;
+      candidate: {
+        firstName: string;
+        lastName: string;
+        email: string | null;
+        assignee: { email: string } | null;
+        hiringRequest: {
+          recruiter: { email: string } | null;
+          hiringManager: { email: string } | null;
+        } | null;
+      };
+    },
+    status: OfferStatus,
+    actorEmail?: string,
+  ) {
+    const name = [offer.candidate.lastName, offer.candidate.firstName].filter(Boolean).join(' ');
+    const base = (process.env.PUBLIC_URL || process.env.WEB_URL || '').replace(/\/$/, '');
+    const link = offer.externalToken ? `${base}/public/offer/${offer.externalToken}` : base;
+
+    const staff = new Set<string>();
+    const add = (e?: string | null) => {
+      const v = String(e || '').trim().toLowerCase();
+      if (v && v.includes('@') && v !== String(actorEmail || '').toLowerCase()) staff.add(v);
+    };
+    add(offer.candidate.assignee?.email);
+    add(offer.candidate.hiringRequest?.recruiter?.email);
+    add(offer.candidate.hiringRequest?.hiringManager?.email);
+
+    if (status === 'PENDING_MANAGER') {
+      const mgr = offer.candidate.hiringRequest?.hiringManager?.email;
+      if (mgr) await this.notifications.sendEmail(mgr, 'OFFER_MANAGER', { name });
+      else for (const to of staff) await this.notifications.sendEmail(to, 'OFFER_MANAGER', { name });
+      return;
+    }
+    if (status === 'SENT_TO_CANDIDATE' && offer.candidate.email) {
+      await this.notifications.sendEmail(offer.candidate.email, 'OFFER_SENT', { name, link });
+      return;
+    }
+    if (status === 'ACCEPTED') {
+      for (const to of staff) await this.notifications.sendEmail(to, 'OFFER_ACCEPTED', { name });
+      return;
+    }
+    if (status === 'DECLINED') {
+      for (const to of staff) await this.notifications.sendEmail(to, 'OFFER_DECLINED', { name });
+    }
   }
 
   async getByToken(token: string) {
@@ -140,10 +216,29 @@ export class OffersService {
 
   async respondByToken(token: string, accept: boolean) {
     const offer = await this.getByToken(token);
-    return this.prisma.offer.update({
+    const updated = await this.prisma.offer.update({
       where: { id: offer.id },
       data: { status: accept ? 'ACCEPTED' : 'DECLINED' },
+      include: {
+        candidate: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            assignee: { select: { email: true } },
+            hiringRequest: {
+              select: {
+                recruiter: { select: { email: true } },
+                hiringManager: { select: { email: true } },
+              },
+            },
+          },
+        },
+      },
     });
+    void this.notifyOfferStatus(updated, updated.status, undefined).catch(() => undefined);
+    return updated;
   }
 
   async generatePdf(id: string): Promise<Buffer> {
@@ -250,7 +345,7 @@ export class OffersController {
 }
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, NotificationsModule],
   controllers: [OffersController],
   providers: [OffersService],
   exports: [OffersService],
