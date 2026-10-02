@@ -160,8 +160,16 @@ export function AppShell({
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+  const maxInbox = useQuery({
+    queryKey: ['max-inbox'],
+    queryFn: () => api<{ unread: number; items: MaxInboxItem[] }>('/integrations/max/inbox'),
+    enabled: !!user,
+    refetchInterval: 8_000,
+    staleTime: 4_000,
+  });
   const badges: Record<string, number> = {
     reserveUnviewed: reserveStats.data?.unviewed || 0,
+    messengersUnread: maxInbox.data?.unread || 0,
   };
 
   const menuSearchRef = useRef<HTMLInputElement>(null);
@@ -338,6 +346,51 @@ export function AppShell({
           </div>
         </main>
       </div>
+      <MaxMessageToasts items={maxInbox.data?.items || []} />
+    </div>
+  );
+}
+
+type MaxInboxItem = {
+  candidateId: string;
+  name: string;
+  text: string;
+  at: string;
+  id: string;
+  unread: number;
+};
+
+function MaxMessageToasts({ items }: { items: MaxInboxItem[] }) {
+  const [toasts, setToasts] = useState<Array<MaxInboxItem & { key: string }>>([]);
+  const seenRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (seenRef.current == null) {
+      seenRef.current = new Set(items.map((i) => i.id));
+      return;
+    }
+    const fresh = items.filter((i) => !seenRef.current!.has(i.id));
+    if (!fresh.length) return;
+    for (const i of fresh) seenRef.current.add(i.id);
+    const batch = fresh.map((i) => ({ ...i, key: `${i.id}-${Date.now()}` }));
+    setToasts((prev) => [...prev, ...batch].slice(-4));
+    for (const b of batch) {
+      window.setTimeout(() => {
+        setToasts((prev) => prev.filter((p) => p.key !== b.key));
+      }, 3000);
+    }
+  }, [items]);
+
+  if (!toasts.length) return null;
+  return (
+    <div className="msg-toast-stack" aria-live="polite">
+      {toasts.map((t) => (
+        <Link key={t.key} href={`/candidates/${t.candidateId}?tab=messengers`} className="msg-toast">
+          <div className="msg-toast-from">{t.name || 'Кандидат'}</div>
+          <div className="msg-toast-text">{t.text}</div>
+          <div className="msg-toast-ch">MAX</div>
+        </Link>
+      ))}
     </div>
   );
 }

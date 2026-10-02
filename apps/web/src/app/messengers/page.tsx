@@ -1,10 +1,16 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { AppShell, Card, Empty } from '@/components/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppShell, Button, Card, Empty } from '@/components/ui';
 import { api, fullName } from '@/lib/api';
 
 export default function MessengersPage() {
+  const qc = useQueryClient();
+  const inbox = useQuery({
+    queryKey: ['max-inbox'],
+    queryFn: () => api<{ unread: number; items: any[] }>('/integrations/max/inbox'),
+    refetchInterval: 8_000,
+  });
   const candidates = useQuery({
     queryKey: ['candidates-msg'],
     queryFn: () => api<any>('/candidates?pageSize=30'),
@@ -13,9 +19,51 @@ export default function MessengersPage() {
     queryKey: ['max-status'],
     queryFn: () => api<any>('/integrations/max/status'),
   });
+  const readAll = useMutation({
+    mutationFn: () => api('/integrations/max/inbox/read-all', { method: 'POST', body: '{}' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['max-inbox'] }),
+  });
+  const readOne = useMutation({
+    mutationFn: (id: string) => api(`/integrations/max-chat/${id}/read`, { method: 'POST', body: '{}' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['max-inbox'] }),
+  });
+
+  const unreadItems = inbox.data?.items || [];
 
   return (
-    <AppShell title="Мессенджеры" subtitle="WhatsApp, Telegram и MAX из карточек кандидатов">
+    <AppShell
+      title="Мессенджеры"
+      subtitle="WhatsApp, Telegram и MAX из карточек кандидатов"
+      actions={
+        unreadItems.length ? (
+          <Button variant="ghost" onClick={() => readAll.mutate()} disabled={readAll.isPending}>
+            Отметить все прочитанными
+          </Button>
+        ) : null
+      }
+    >
+      {unreadItems.length ? (
+        <Card className="p-4 mb-4">
+          <div className="text-sm font-semibold mb-3">Новые сообщения MAX ({inbox.data?.unread || 0})</div>
+          <div className="space-y-2">
+            {unreadItems.map((m: any) => (
+              <a
+                key={m.candidateId + m.id}
+                href={`/candidates/${m.candidateId}?tab=messengers`}
+                className="block rounded-lg border border-[var(--sk-line)] px-3 py-2 hover:bg-[var(--sk-hover)]"
+                onClick={() => readOne.mutate(m.candidateId)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium text-sm">{m.name || 'Кандидат'}</div>
+                  {m.unread > 1 ? <span className="nav-badge">{m.unread}</span> : null}
+                </div>
+                <div className="text-sm text-[var(--sk-muted)] line-clamp-2 mt-0.5">{m.text}</div>
+              </a>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="p-4 mb-4 text-sm text-[var(--sk-muted)] space-y-2">
         <p>WhatsApp и Telegram открывают ваш личный аккаунт в браузере по номеру телефона кандидата.</p>
         <p>

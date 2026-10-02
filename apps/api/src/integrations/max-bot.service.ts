@@ -9,6 +9,8 @@ type MaxExtra = {
   maxChatId?: number;
   maxUsername?: string;
   maxLinkedAt?: string;
+  maxUnread?: number;
+  maxLastInbound?: { id: string; text: string; at: string };
   maxThread?: Array<{ id: string; text: string; fromBot: boolean; at: string }>;
 };
 
@@ -241,10 +243,80 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     if (!c) return;
     const extra = this.extraOf(c);
     const thread = [...(extra.maxThread || []), entry].slice(-80);
+    const next: MaxExtra = { ...extra, maxThread: thread };
+    if (!entry.fromBot) {
+      next.maxUnread = (extra.maxUnread || 0) + 1;
+      next.maxLastInbound = { id: entry.id, text: entry.text, at: entry.at };
+    }
     await this.prisma.candidate.update({
       where: { id: candidateId },
-      data: { extra: { ...extra, maxThread: thread } as Prisma.InputJsonValue },
+      data: { extra: next as Prisma.InputJsonValue },
     });
+  }
+
+  async inbox() {
+    const list = await this.prisma.candidate.findMany({
+      where: { isDepersonalized: false },
+      select: { id: true, firstName: true, lastName: true, middleName: true, extra: true },
+      take: 800,
+      orderBy: { updatedAt: 'desc' },
+    });
+    const items: Array<{
+      candidateId: string;
+      name: string;
+      text: string;
+      at: string;
+      id: string;
+      unread: number;
+    }> = [];
+    let unread = 0;
+    for (const c of list) {
+      const extra = this.extraOf(c);
+      const n = extra.maxUnread || 0;
+      if (n <= 0) continue;
+      unread += n;
+      const last = extra.maxLastInbound;
+      if (!last) continue;
+      items.push({
+        candidateId: c.id,
+        name: [c.lastName, c.firstName, c.middleName].filter(Boolean).join(' '),
+        text: last.text,
+        at: last.at,
+        id: last.id,
+        unread: n,
+      });
+    }
+    items.sort((a, b) => (a.at < b.at ? 1 : -1));
+    return { unread, items: items.slice(0, 30) };
+  }
+
+  async markRead(candidateId: string) {
+    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
+    if (!c) return { ok: false };
+    const extra = this.extraOf(c);
+    if (!extra.maxUnread) return { ok: true, unread: 0 };
+    await this.prisma.candidate.update({
+      where: { id: candidateId },
+      data: { extra: { ...extra, maxUnread: 0 } as Prisma.InputJsonValue },
+    });
+    return { ok: true, unread: 0 };
+  }
+
+  async markAllRead() {
+    const list = await this.prisma.candidate.findMany({
+      where: { isDepersonalized: false },
+      select: { id: true, extra: true },
+      take: 800,
+    });
+    for (const c of list) {
+      const extra = this.extraOf(c);
+      if (!extra.maxUnread) continue;
+      await this.prisma.candidate.update({
+        where: { id: c.id },
+        data: { extra: { ...extra, maxUnread: 0 } as Prisma.InputJsonValue },
+      });
+    }
+    return { ok: true };
   }
 
   async handleUpdate(update: any, secretHeader?: string) {
@@ -337,10 +409,14 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     return list.find((c) => this.extraOf(c).maxUserId === userId) || null;
   }
 
-  async chat(candidateId: string) {
+  async chat(candidateId: string, opts?: { markRead?: boolean }) {
     const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
     if (!c) return { configured: this.configured(), linked: false, messages: [], note: 'Кандидат не найден' };
-    const extra = this.extraOf(c);
+    if (opts?.markRead !== false) {
+      await this.markRead(candidateId).catch(() => undefined);
+    }
+    const fresh = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
+    const extra = this.extraOf(fresh || c);
     const invite = this.inviteLink(candidateId);
     const share = this.shareLink(
       `Здравствуйте, ${c.firstName}! Напишите нам в MAX: ${invite || 'ссылка будет позже'}`,

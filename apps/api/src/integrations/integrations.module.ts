@@ -436,6 +436,24 @@ export class IntegrationsController {
   }
 
   @ApiBearerAuth()
+  @Get('max/inbox')
+  maxInbox() {
+    return this.maxBot.inbox();
+  }
+
+  @ApiBearerAuth()
+  @Post('max/inbox/read-all')
+  maxInboxReadAll() {
+    return this.maxBot.markAllRead();
+  }
+
+  @ApiBearerAuth()
+  @Post('max-chat/:candidateId/read')
+  maxChatRead(@Param('candidateId') candidateId: string) {
+    return this.maxBot.markRead(candidateId);
+  }
+
+  @ApiBearerAuth()
   @Roles(SystemRole.ADMIN)
   @Post('max/register-webhook')
   maxRegisterWebhook() {
