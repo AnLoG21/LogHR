@@ -963,25 +963,54 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
         firstName: true,
         lastName: true,
         assignee: { select: { email: true } },
-        hiringRequest: { select: { recruiter: { select: { email: true } } } },
+        hiringRequest: {
+          select: {
+            recruiter: { select: { email: true } },
+            hiringManager: { select: { email: true } },
+          },
+        },
       },
     });
     if (!c) return;
+
     const emails = new Set<string>();
-    if (c.assignee?.email) emails.add(c.assignee.email);
-    if (c.hiringRequest?.recruiter?.email) emails.add(c.hiringRequest.recruiter.email);
+    const addEmail = (raw?: string | null) => {
+      const v = String(raw || '').trim().toLowerCase();
+      if (v && v.includes('@')) emails.add(v);
+    };
+    addEmail(c.assignee?.email);
+    addEmail(c.hiringRequest?.recruiter?.email);
+    addEmail(c.hiringRequest?.hiringManager?.email);
     if (!emails.size) {
       const admins = await this.prisma.user.findMany({
         where: { isActive: true, role: { in: ['ADMIN', 'RECRUITMENT_LEAD'] } },
         select: { email: true },
         take: 5,
       });
-      for (const a of admins) emails.add(a.email);
+      for (const a of admins) addEmail(a.email);
     }
+    if (!emails.size) return;
+
     const name = [c.lastName, c.firstName].filter(Boolean).join(' ');
     const base = (process.env.PUBLIC_URL || process.env.WEB_URL || '').replace(/\/$/, '');
     const link = `${base}/messengers?chat=${c.id}`;
+    const marker = `chat=${c.id}`;
+    const cooldownMs = Number(process.env.MAX_INBOUND_EMAIL_COOLDOWN_MS || 5 * 60 * 1000);
+    const since = new Date(Date.now() - cooldownMs);
+    const recent = await this.prisma.notificationLog.findMany({
+      where: {
+        channel: 'EMAIL',
+        to: { in: [...emails] },
+        createdAt: { gte: since },
+        status: { in: ['SENT', 'MOCKED'] },
+        body: { contains: marker },
+      },
+      select: { to: true },
+    });
+    const already = new Set(recent.map((r) => r.to.trim().toLowerCase()));
+
     for (const to of emails) {
+      if (already.has(to)) continue;
       await this.notifications.sendEmail(to, 'MAX_INBOUND_STAFF', {
         name,
         text: text.slice(0, 500),
