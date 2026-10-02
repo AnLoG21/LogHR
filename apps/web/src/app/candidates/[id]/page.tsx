@@ -195,18 +195,6 @@ function CandidateDetailInner() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['candidate', id] }),
   });
 
-  const depersonalize = useMutation({
-    mutationFn: () =>
-      api(`/candidates/${id}/depersonalize`, {
-        method: 'POST',
-        body: JSON.stringify({ fields: ['phone', 'email', 'address', 'about', 'resumeText'] }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['candidate', id] });
-      qc.invalidateQueries({ queryKey: ['candidates'] });
-    },
-  });
-
   const [resumeDraft, setResumeDraft] = useState('');
   useEffect(() => {
     if (c?.resumeText) setResumeDraft(c.resumeText);
@@ -347,8 +335,8 @@ function CandidateDetailInner() {
               >
                 <Icon name="star" />
               </button>
-              <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" className="w-4 h-4" /> Редактировать</Button>
-              <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" className="w-4 h-4" /> Добавить комментарий</Button>
+              <Button variant="ghost" onClick={() => setEditOpen(true)}><Icon name="edit" /> Редактировать</Button>
+              <Button variant="ghost" onClick={() => setCommentOpen(true)}><Icon name="comment" /> Добавить комментарий</Button>
               <Button variant="ghost" onClick={() => call.mutate()} disabled={!c.phone || call.isPending}>
                 {call.isPending ? 'Соединяем…' : 'Позвонить'}
               </Button>
@@ -358,20 +346,22 @@ function CandidateDetailInner() {
                 </span>
               ) : null}
               <Button variant="ghost" onClick={() => setTab('messengers')} disabled={!c.phone}>
-                <Icon name="whatsapp" className="w-4 h-4" /> WhatsApp
+                <Icon name="whatsapp" /> WhatsApp
               </Button>
               <Button variant="ghost" onClick={() => setMergeOpen(true)}>Дубликаты</Button>
               <Button variant="ghost" onClick={() => createCheck.mutate('FEEDBACK')} disabled={createCheck.isPending}>
                 На согласование
               </Button>
               {c.externalId && c.source === 'HH' ? (
-                <Button
-                  variant="ghost"
+                <button
+                  type="button"
+                  className="sk-btn sk-btn-icon"
+                  title="Обновить с HH"
                   disabled={refreshHh.isPending}
                   onClick={() => refreshHh.mutate()}
                 >
-                  {refreshHh.isPending ? 'HH…' : 'Обновить с HH'}
-                </Button>
+                  <Icon name="refresh" />
+                </button>
               ) : null}
               {canDelete ? (
                 <ConfirmDelete
@@ -385,14 +375,6 @@ function CandidateDetailInner() {
                 <Button variant="ghost" disabled={pdnConsent.isPending} onClick={() => pdnConsent.mutate()}>
                   Отметить согласие на ПДн
                 </Button>
-              ) : null}
-              {canPdn && !c.isDepersonalized ? (
-                <ConfirmDelete
-                  label="Обезличить"
-                  question="Стереть персональные данные (телефон, email, адрес)? Карточка останется без ПДн."
-                  onConfirm={() => depersonalize.mutate()}
-                  pending={depersonalize.isPending}
-                />
               ) : null}
             </div>
             {approveLink ? (
@@ -511,24 +493,24 @@ function CandidateDetailInner() {
               {tab === 'offers' && <OffersTab candidate={c} />}
               {tab === 'assessments' && <AssessmentsTab candidateId={id} />}
               {tab === 'messengers' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 14 }}>
-                  <WhatsappTemplatesBlock candidateId={id} hasPhone={Boolean(c.phone)} />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    <a className="sk-btn sk-btn-outline" href={messengers.data?.whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
-                    <a className="sk-btn sk-btn-outline" href={messengers.data?.telegram} target="_blank" rel="noreferrer">Telegram</a>
-                    {messengers.data?.maxInvite ? (
-                      <a className="sk-btn sk-btn-outline" href={messengers.data.maxInvite} target="_blank" rel="noreferrer">Открыть бота MAX</a>
-                    ) : (
-                      <a className="sk-btn sk-btn-outline" href="https://max.ru/" target="_blank" rel="noreferrer">MAX</a>
-                    )}
-                    {messengers.data?.maxShare ? (
-                      <a className="sk-btn sk-btn-outline" href={messengers.data.maxShare} target="_blank" rel="noreferrer">Поделиться в MAX</a>
+                <div className="cand-msg">
+                  <div className="cand-msg-links">
+                    {messengers.data?.whatsapp ? (
+                      <a className="sk-btn sk-btn-outline" href={messengers.data.whatsapp} target="_blank" rel="noreferrer">
+                        <Icon name="whatsapp" /> WhatsApp
+                      </a>
                     ) : null}
+                    {messengers.data?.telegram ? (
+                      <a className="sk-btn sk-btn-outline" href={messengers.data.telegram} target="_blank" rel="noreferrer">
+                        Telegram
+                      </a>
+                    ) : null}
+                    <a className="sk-btn sk-btn-outline" href="/messengers">
+                      Все чаты MAX
+                    </a>
                   </div>
-                  {messengers.data?.maxNote ? (
-                    <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{messengers.data.maxNote}</div>
-                  ) : null}
-                  <MaxChatBlock candidateId={id} />
+                  <WhatsappTemplatesBlock candidateId={id} hasPhone={Boolean(c.phone)} />
+                  <MaxChatBlock candidateId={id} candidateName={fullName(c)} />
                   <HhChatBlock candidateId={id} />
                 </div>
               )}
@@ -915,10 +897,11 @@ function WhatsappTemplatesBlock({ candidateId, hasPhone }: { candidateId: string
   );
 }
 
-function MaxChatBlock({ candidateId }: { candidateId: string }) {
+function MaxChatBlock({ candidateId, candidateName }: { candidateId: string; candidateName?: string }) {
   const [text, setText] = useState('');
   const [copied, setCopied] = useState(false);
   const qc = useQueryClient();
+  const bottomRef = useRef<HTMLDivElement>(null);
   const chat = useQuery({
     queryKey: ['max-chat', candidateId],
     queryFn: () => api<any>(`/integrations/max-chat/${candidateId}`),
@@ -931,9 +914,17 @@ function MaxChatBlock({ candidateId }: { candidateId: string }) {
       if (res?.ok) {
         setText('');
         qc.invalidateQueries({ queryKey: ['max-chat', candidateId] });
+        qc.invalidateQueries({ queryKey: ['max-dialogs'] });
+        qc.invalidateQueries({ queryKey: ['max-inbox'] });
       }
     },
   });
+  const messages = (chat.data?.messages || []).slice().reverse();
+
+  useEffect(() => {
+    if (messages.length) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
   const copyInvite = async () => {
     const url = chat.data?.invite;
     if (!url) return;
@@ -942,63 +933,93 @@ function MaxChatBlock({ candidateId }: { candidateId: string }) {
     setTimeout(() => setCopied(false), 1600);
   };
 
+  const initials = (candidateName || '?')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('') || '?';
+
   return (
-    <div style={{ padding: 12, background: 'var(--sk-soft)', borderRadius: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ fontWeight: 600 }}>Чат MAX</div>
-        <Button variant="ghost" onClick={() => chat.refetch()} disabled={chat.isFetching}>Обновить</Button>
+    <div className="cand-tg">
+      <div className="cand-tg-head">
+        <div className="tg-avatar tg-avatar-sm" data-tone={candidateId.charCodeAt(0) % 5}>
+          {initials}
+        </div>
+        <div className="cand-tg-head-info">
+          <div className="cand-tg-title">MAX</div>
+          <div className="cand-tg-sub">
+            {chat.data?.linked ? 'Чат связан — можно писать' : 'Отправьте кандидату ссылку-приглашение'}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="sk-btn sk-btn-icon"
+          title="Обновить"
+          disabled={chat.isFetching}
+          onClick={() => chat.refetch()}
+        >
+          <Icon name="refresh" />
+        </button>
       </div>
-      {chat.isLoading ? <div style={{ color: 'var(--sk-muted)' }}>Загрузка…</div> : null}
+
+      {chat.isLoading ? <div className="tg-empty">Загрузка…</div> : null}
+
       {chat.data ? (
         <>
-          <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{chat.data.note}</div>
-          {chat.data.invite ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-              <Button variant="ghost" onClick={copyInvite}>{copied ? 'Ссылка скопирована' : 'Скопировать ссылку для кандидата'}</Button>
-              <a className="sk-btn sk-btn-outline" href={chat.data.invite} target="_blank" rel="noreferrer">Открыть ссылку</a>
-              {chat.data.share ? (
-                <a className="sk-btn sk-btn-outline" href={chat.data.share} target="_blank" rel="noreferrer">Отправить через «Поделиться»</a>
-              ) : null}
+          {!chat.data.linked && chat.data.invite ? (
+            <div className="cand-tg-invite">
+              <div>Скопируйте ссылку и отправьте кандидату. Когда он нажмёт «Начать», переписка появится здесь.</div>
+              <Button variant="ghost" onClick={copyInvite}>
+                <Icon name="copy" /> {copied ? 'Скопировано' : 'Скопировать ссылку'}
+              </Button>
             </div>
           ) : null}
-          {chat.data.linked ? (
-            <>
-              <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', display: 'grid', gap: 6 }}>
-                {(chat.data.messages || []).map((m: any) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      fontSize: 13,
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      background: m.fromBot ? 'var(--sk-success-soft)' : 'var(--sk-panel)',
-                      border: '1px solid var(--sk-line)',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 2 }}>
-                      {m.fromBot ? 'Рекрутер (бот)' : 'Кандидат'}
-                      {m.at ? ` · ${new Date(m.at).toLocaleString('ru-RU')}` : ''}
-                    </div>
-                    {m.text || '—'}
+
+          <div className="cand-tg-messages">
+            {messages.map((m: any) => (
+              <div key={m.id} className={clsx('tg-bubble-row', m.fromBot ? 'out' : 'in')}>
+                <div className={clsx('tg-bubble', m.fromBot ? 'out' : 'in')}>
+                  <div className="tg-bubble-text">{m.text}</div>
+                  <div className="tg-bubble-meta">
+                    {m.at
+                      ? new Date(m.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+                      : ''}
                   </div>
-                ))}
-                {!(chat.data.messages || []).length ? (
-                  <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>Сообщений пока нет</div>
-                ) : null}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <Input
-                  placeholder="Сообщение в MAX…"
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <Button disabled={!text.trim() || send.isPending} onClick={() => send.mutate()}>Отправить</Button>
-              </div>
-            </>
-          ) : null}
+            ))}
+            {!messages.length && chat.data.linked ? <div className="tg-empty">Сообщений пока нет</div> : null}
+            <div ref={bottomRef} />
+          </div>
+
+          <form
+            className="tg-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!text.trim() || send.isPending || !chat.data?.linked) return;
+              send.mutate();
+            }}
+          >
+            <input
+              className="tg-composer-input"
+              placeholder={chat.data.linked ? 'Написать сообщение…' : 'Сначала дождитесь открытия ссылки кандидатом'}
+              value={text}
+              disabled={!chat.data.linked}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="tg-send"
+              disabled={!text.trim() || send.isPending || !chat.data.linked}
+              aria-label="Отправить"
+            >
+              ➤
+            </button>
+          </form>
           {send.data && !(send.data as any).ok ? (
-            <div style={{ fontSize: 12, color: 'var(--sk-text-danger)', marginTop: 6 }}>{(send.data as any).note}</div>
+            <div className="tg-send-error">{(send.data as any).note}</div>
           ) : null}
         </>
       ) : null}
@@ -1024,61 +1045,69 @@ function HhChatBlock({ candidateId }: { candidateId: string }) {
     },
   });
   return (
-    <div style={{ marginTop: 8, padding: 12, background: 'var(--sk-soft)', borderRadius: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ fontWeight: 600 }}>Чат HH</div>
-        <Button variant="ghost" onClick={() => chat.refetch()} disabled={chat.isFetching}>Обновить</Button>
+    <div className="cand-tg cand-tg-hh">
+      <div className="cand-tg-head">
+        <div className="cand-tg-head-info">
+          <div className="cand-tg-title">Чат HH</div>
+          <div className="cand-tg-sub">{chat.data?.note || 'Переписка на HeadHunter'}</div>
+        </div>
+        <button
+          type="button"
+          className="sk-btn sk-btn-icon"
+          title="Обновить"
+          disabled={chat.isFetching}
+          onClick={() => chat.refetch()}
+        >
+          <Icon name="refresh" />
+        </button>
       </div>
-      {chat.isLoading ? <div style={{ color: 'var(--sk-muted)' }}>Загрузка…</div> : null}
+      {chat.isLoading ? <div className="tg-empty">Загрузка…</div> : null}
       {chat.data ? (
         <>
-          <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>{chat.data.note}</div>
-          {!chat.data.configured ? (
-            <div style={{ fontSize: 12, marginTop: 4 }}>Статус: чат HeadHunter пока не подключён</div>
+          {!chat.data.configured || !chat.data.live ? (
+            <div className="tg-empty">{chat.data.note || 'Чат HeadHunter пока не подключён'}</div>
           ) : (
             <>
-              {chat.data.configured && chat.data.live ? (
-                <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginTop: 4 }}>Переписка с HeadHunter подключена</div>
-              ) : null}
-              <div style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', display: 'grid', gap: 6 }}>
+              <div className="cand-tg-messages" style={{ maxHeight: 240 }}>
                 {(chat.data.messages || []).map((m: any) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      fontSize: 13,
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      background: m.fromEmployer ? 'var(--sk-success-soft)' : 'var(--sk-panel)',
-                      border: '1px solid var(--sk-line)',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, color: 'var(--sk-muted)', marginBottom: 2 }}>
-                      {m.fromEmployer ? 'Работодатель' : 'Кандидат'}
-                      {m.createdAt ? ` · ${new Date(m.createdAt).toLocaleString('ru-RU')}` : ''}
+                  <div key={m.id} className={clsx('tg-bubble-row', m.fromEmployer ? 'out' : 'in')}>
+                    <div className={clsx('tg-bubble', m.fromEmployer ? 'out' : 'in')}>
+                      <div className="tg-bubble-text">{m.text || '—'}</div>
+                      <div className="tg-bubble-meta">
+                        {m.createdAt
+                          ? new Date(m.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+                          : ''}
+                      </div>
                     </div>
-                    {m.text || '—'}
                   </div>
                 ))}
-                {chat.data.live && !(chat.data.messages || []).length ? (
-                  <div style={{ fontSize: 12, color: 'var(--sk-muted)' }}>Сообщений нет</div>
-                ) : null}
+                {!(chat.data.messages || []).length ? <div className="tg-empty">Сообщений пока нет</div> : null}
               </div>
               {chat.data.negotiationId ? (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <Input
+                <form
+                  className="tg-composer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!text.trim() || send.isPending) return;
+                    send.mutate();
+                  }}
+                >
+                  <input
+                    className="tg-composer-input"
                     placeholder="Сообщение в HH…"
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    style={{ flex: 1 }}
                   />
-                  <Button disabled={!text.trim() || send.isPending} onClick={() => send.mutate()}>Отправить</Button>
-                </div>
-              ) : null}
-              {send.data && !(send.data as any).ok ? (
-                <div style={{ fontSize: 12, color: 'var(--sk-text-danger)', marginTop: 6 }}>{(send.data as any).note}</div>
+                  <button type="submit" className="tg-send" disabled={!text.trim() || send.isPending} aria-label="Отправить">
+                    ➤
+                  </button>
+                </form>
               ) : null}
             </>
           )}
+          {send.data && !(send.data as any).ok ? (
+            <div className="tg-send-error">{(send.data as any).note}</div>
+          ) : null}
         </>
       ) : null}
     </div>

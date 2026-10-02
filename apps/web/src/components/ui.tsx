@@ -12,8 +12,16 @@ import { THEME_LABELS, useTheme, type ThemePref } from '@/lib/theme';
 import clsx from 'clsx';
 
 function Icon({ name, className }: { name: string; className?: string }) {
-  const sizeMatch = className?.match(/w-\[?(\d+)/);
-  const size = sizeMatch ? Number(sizeMatch[1]) : (className?.includes('w-4') ? 16 : className?.includes('w-3') ? 14 : className?.includes('w-5') ? 20 : 18);
+  const arbitrary = className?.match(/w-\[(\d+)(?:px)?\]/);
+  const size = arbitrary
+    ? Number(arbitrary[1])
+    : className?.includes('w-5')
+      ? 20
+      : className?.includes('w-4')
+        ? 16
+        : className?.includes('w-3')
+          ? 14
+          : 18;
   const c = className;
   const style = { width: size, height: size, flexShrink: 0 as const };
   const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, style };
