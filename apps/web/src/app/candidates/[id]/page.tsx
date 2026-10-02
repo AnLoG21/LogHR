@@ -39,7 +39,13 @@ function CandidateDetailInner() {
   const sp = useSearchParams();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const [tab, setTab] = useState(sp.get('tab') === 'comments' || sp.get('tab') === 'history' ? 'history' : 'resume');
+  const [tab, setTab] = useState(
+    sp.get('tab') === 'comments' || sp.get('tab') === 'history'
+      ? 'history'
+      : sp.get('tab') === 'messengers'
+        ? 'messengers'
+        : 'resume',
+  );
   const [comment, setComment] = useState('');
   const [stageId, setStageId] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -54,6 +60,7 @@ function CandidateDetailInner() {
 
   useEffect(() => {
     if (sp.get('tab') === 'comments' || sp.get('tab') === 'history') setTab('history');
+    if (sp.get('tab') === 'messengers') setTab('messengers');
     if (sp.get('tab') === 'comments') setCommentOpen(true);
     if (sp.get('edit') === '1') setEditOpen(true);
   }, [sp]);
