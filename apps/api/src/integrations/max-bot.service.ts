@@ -1,6 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { AuthUser } from '../common/guards';
+import { visibilityWhere } from '../common/visibility';
 
 const API = 'https://platform-api2.max.ru';
 
@@ -12,6 +14,15 @@ type MaxExtra = {
   maxUnread?: number;
   maxLastInbound?: { id: string; text: string; at: string };
   maxThread?: Array<{ id: string; text: string; fromBot: boolean; at: string }>;
+};
+
+type CandidateLite = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  middleName?: string | null;
+  phone?: string | null;
+  extra: unknown;
 };
 
 @Injectable()
@@ -130,7 +141,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   inviteLink(candidateId: string) {
     const bot = this.botUsername();
     if (!bot) return null;
-    const payload = `c_${candidateId.replace(/-/g, '').slice(0, 32)}`;
+    const payload = `c_${candidateId.replace(/-/g, '').toLowerCase()}`;
     return `https://max.ru/${bot}?start=${payload}`;
   }
 
@@ -164,6 +175,40 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private vis(user: AuthUser): Prisma.CandidateWhereInput {
+    return visibilityWhere({
+      id: user.id,
+      role: user.role as any,
+      orgUnitId: (user as any).orgUnitId,
+      visibilityRules: (user as any).visibilityRules,
+    });
+  }
+
+  private async assertCandidateAccess(candidateId: string, user: AuthUser) {
+    const c = await this.prisma.candidate.findFirst({
+      where: { id: candidateId, isDepersonalized: false, AND: [this.vis(user)] },
+      select: { id: true, firstName: true, lastName: true, middleName: true, phone: true, extra: true },
+    });
+    if (!c) throw new ForbiddenException('Нет доступа к кандидату или он не найден');
+    return c;
+  }
+
+  /** MAX timestamp: seconds or ms → ISO */
+  private normalizeAt(raw: unknown): string {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return new Date().toISOString();
+    const ms = n < 1e12 ? n * 1000 : n;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+
+  /** c_<32 hex> → UUID */
+  private uuidFromCompact(compact: string): string | null {
+    const c = compact.toLowerCase().replace(/[^0-9a-f]/g, '');
+    if (c.length !== 32) return null;
+    return `${c.slice(0, 8)}-${c.slice(8, 12)}-${c.slice(12, 16)}-${c.slice(16, 20)}-${c.slice(20)}`;
+  }
+
   async ensureWebhook() {
     if (!this.configured() || !this.publicBase()) return { ok: false, note: 'not_configured' };
     const url = `${this.publicBase()}/api/integrations/max/webhook`;
@@ -192,74 +237,107 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private extraOf(c: { extra: unknown }): MaxExtra {
-    return c.extra && typeof c.extra === 'object' ? (c.extra as MaxExtra) : {};
+    return c.extra && typeof c.extra === 'object' && !Array.isArray(c.extra) ? (c.extra as MaxExtra) : {};
   }
 
   private async findByStartPayload(payload?: string) {
     if (!payload?.startsWith('c_')) return null;
-    const compact = payload.slice(2).toLowerCase();
-    if (compact.length < 8) return null;
-    // Candidate UUIDs without dashes — match by startsWith on stripped id
-    const all = await this.prisma.candidate.findMany({
-      where: { isDepersonalized: false },
+    const uuid = this.uuidFromCompact(payload.slice(2));
+    if (!uuid) return null;
+    return this.prisma.candidate.findFirst({
+      where: { id: uuid, isDepersonalized: false },
       select: { id: true, firstName: true, lastName: true, phone: true, extra: true },
-      take: 500,
-      orderBy: { updatedAt: 'desc' },
     });
-    return all.find((c) => c.id.replace(/-/g, '').toLowerCase().startsWith(compact)) || null;
   }
 
   private async findByPhone(raw?: string) {
     const digits = (raw || '').replace(/\D/g, '');
     if (digits.length < 10) return null;
     const tail = digits.slice(-10);
-    const list = await this.prisma.candidate.findMany({
-      where: { phone: { not: null }, isDepersonalized: false },
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Candidate"
+      WHERE "isDepersonalized" = false
+        AND phone IS NOT NULL
+        AND regexp_replace(phone, '\\D', '', 'g') LIKE ${'%' + tail}
+      ORDER BY "updatedAt" DESC
+      LIMIT 5
+    `;
+    if (!rows.length) return null;
+    return this.prisma.candidate.findUnique({
+      where: { id: rows[0].id },
       select: { id: true, firstName: true, lastName: true, phone: true, extra: true },
-      take: 500,
-      orderBy: { updatedAt: 'desc' },
     });
-    return list.find((c) => (c.phone || '').replace(/\D/g, '').endsWith(tail)) || null;
+  }
+
+  private async findByMaxUser(userId: number) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Candidate"
+      WHERE "isDepersonalized" = false
+        AND ("extra"->>'maxUserId') IS NOT NULL
+        AND ("extra"->>'maxUserId')::bigint = ${BigInt(userId)}
+      ORDER BY "updatedAt" DESC
+      LIMIT 1
+    `;
+    if (!rows.length) return null;
+    return this.prisma.candidate.findUnique({
+      where: { id: rows[0].id },
+      select: { id: true, firstName: true, lastName: true, phone: true, extra: true },
+    });
   }
 
   private async saveLink(candidateId: string, userId: number, chatId?: number, username?: string) {
-    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c) return;
-    const extra: MaxExtra = {
-      ...this.extraOf(c),
-      maxUserId: userId,
-      maxChatId: chatId,
-      maxUsername: username,
-      maxLinkedAt: new Date().toISOString(),
-    };
-    await this.prisma.candidate.update({
-      where: { id: candidateId },
-      data: { extra: extra as Prisma.InputJsonValue },
+    await this.prisma.$transaction(async (tx) => {
+      const c = await tx.candidate.findUnique({ where: { id: candidateId } });
+      if (!c) return;
+      const extra: MaxExtra = {
+        ...this.extraOf(c),
+        maxUserId: userId,
+        maxChatId: chatId,
+        maxUsername: username,
+        maxLinkedAt: new Date().toISOString(),
+      };
+      await tx.candidate.update({
+        where: { id: candidateId },
+        data: { extra: extra as Prisma.InputJsonValue },
+      });
     });
   }
 
-  private async pushThread(candidateId: string, entry: { id: string; text: string; fromBot: boolean; at: string }) {
-    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c) return;
-    const extra = this.extraOf(c);
-    const thread = [...(extra.maxThread || []), entry].slice(-80);
-    const next: MaxExtra = { ...extra, maxThread: thread };
-    if (!entry.fromBot) {
-      next.maxUnread = (extra.maxUnread || 0) + 1;
-      next.maxLastInbound = { id: entry.id, text: entry.text, at: entry.at };
-    }
-    await this.prisma.candidate.update({
-      where: { id: candidateId },
-      data: { extra: next as Prisma.InputJsonValue },
+  /** Атомарно добавляет сообщение; пропускает дубликат по id (mid) */
+  private async pushThread(
+    candidateId: string,
+    entry: { id: string; text: string; fromBot: boolean; at: string },
+  ): Promise<{ added: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      const c = await tx.candidate.findUnique({ where: { id: candidateId } });
+      if (!c) return { added: false };
+      const extra = this.extraOf(c);
+      const thread = extra.maxThread || [];
+      if (thread.some((m) => m.id === entry.id)) return { added: false };
+      const nextThread = [...thread, entry].slice(-80);
+      const next: MaxExtra = { ...extra, maxThread: nextThread };
+      if (!entry.fromBot) {
+        next.maxUnread = (extra.maxUnread || 0) + 1;
+        next.maxLastInbound = { id: entry.id, text: entry.text, at: entry.at };
+      }
+      await tx.candidate.update({
+        where: { id: candidateId },
+        data: { extra: next as Prisma.InputJsonValue },
+      });
+      return { added: true };
     });
   }
 
-  async inbox() {
+  private nameOf(c: CandidateLite) {
+    return [c.lastName, c.firstName, c.middleName].filter(Boolean).join(' ') || 'Кандидат';
+  }
+
+  async inbox(user: AuthUser) {
     const list = await this.prisma.candidate.findMany({
-      where: { isDepersonalized: false },
+      where: { isDepersonalized: false, AND: [this.vis(user)] },
       select: { id: true, firstName: true, lastName: true, middleName: true, extra: true },
-      take: 800,
       orderBy: { updatedAt: 'desc' },
+      take: 2000,
     });
     const items: Array<{
       candidateId: string;
@@ -279,7 +357,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       if (!last) continue;
       items.push({
         candidateId: c.id,
-        name: [c.lastName, c.firstName, c.middleName].filter(Boolean).join(' '),
+        name: this.nameOf(c),
         text: last.text,
         at: last.at,
         id: last.id,
@@ -290,12 +368,12 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     return { unread, items: items.slice(0, 30) };
   }
 
-  async dialogs() {
+  async dialogs(user: AuthUser) {
     const list = await this.prisma.candidate.findMany({
-      where: { isDepersonalized: false },
+      where: { isDepersonalized: false, AND: [this.vis(user)] },
       select: { id: true, firstName: true, lastName: true, middleName: true, phone: true, extra: true },
-      take: 800,
       orderBy: { updatedAt: 'desc' },
+      take: 2000,
     });
     const items: Array<{
       candidateId: string;
@@ -317,7 +395,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
           : null;
       items.push({
         candidateId: c.id,
-        name: [c.lastName, c.firstName, c.middleName].filter(Boolean).join(' ') || 'Кандидат',
+        name: this.nameOf(c),
         phone: c.phone || null,
         linked: !!extra.maxUserId,
         unread: extra.maxUnread || 0,
@@ -338,23 +416,26 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async markRead(candidateId: string) {
-    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c) return { ok: false };
-    const extra = this.extraOf(c);
-    if (!extra.maxUnread) return { ok: true, unread: 0 };
-    await this.prisma.candidate.update({
-      where: { id: candidateId },
-      data: { extra: { ...extra, maxUnread: 0 } as Prisma.InputJsonValue },
+  async markRead(candidateId: string, user?: AuthUser) {
+    if (user) await this.assertCandidateAccess(candidateId, user);
+    return this.prisma.$transaction(async (tx) => {
+      const c = await tx.candidate.findUnique({ where: { id: candidateId } });
+      if (!c) return { ok: false };
+      const extra = this.extraOf(c);
+      if (!extra.maxUnread) return { ok: true, unread: 0 };
+      await tx.candidate.update({
+        where: { id: candidateId },
+        data: { extra: { ...extra, maxUnread: 0 } as Prisma.InputJsonValue },
+      });
+      return { ok: true, unread: 0 };
     });
-    return { ok: true, unread: 0 };
   }
 
-  async markAllRead() {
+  async markAllRead(user: AuthUser) {
     const list = await this.prisma.candidate.findMany({
-      where: { isDepersonalized: false },
+      where: { isDepersonalized: false, AND: [this.vis(user)] },
       select: { id: true, extra: true },
-      take: 800,
+      take: 2000,
     });
     for (const c of list) {
       const extra = this.extraOf(c);
@@ -385,7 +466,6 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       const payload = String(update?.payload || update?.start_payload || '');
       let candidate = await this.findByStartPayload(payload);
       if (!candidate && userId) {
-        // already linked?
         const linked = await this.findByMaxUser(userId);
         if (linked) candidate = linked;
       }
@@ -396,7 +476,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
           'Здравствуйте! Можно писать сюда — сообщение увидит рекрутер, и вы сможете общаться прямо в этом чате.',
         );
         await this.pushThread(candidate.id, {
-          id: `sys-${Date.now()}`,
+          id: `sys-start-${candidate.id}-${userId}`,
           text: 'Кандидат начал переписку в MAX',
           fromBot: true,
           at: new Date().toISOString(),
@@ -413,27 +493,39 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
       const msg = update?.message;
       if (msg?.sender?.is_bot) return { ok: true, ignored: 'own' };
       const text = String(msg?.body?.text || msg?.text || '').trim();
+      const attachments = msg?.body?.attachments || msg?.attachments || [];
       const contactPhone =
-        msg?.body?.attachments?.find?.((a: any) => a.type === 'contact')?.payload?.vcf_info ||
-        msg?.body?.attachments?.find?.((a: any) => a.type === 'contact')?.payload?.phone ||
+        attachments.find?.((a: any) => a.type === 'contact')?.payload?.vcf_info ||
+        attachments.find?.((a: any) => a.type === 'contact')?.payload?.phone ||
         '';
+      const nonTextHint = !text && attachments.length
+        ? `[Вложение: ${attachments.map((a: any) => a.type || 'file').join(', ')}]`
+        : '';
+      const bodyText = text || nonTextHint;
       let candidate = userId ? await this.findByMaxUser(userId) : null;
       if (!candidate && contactPhone) candidate = await this.findByPhone(String(contactPhone));
       if (candidate && userId) {
         await this.saveLink(candidate.id, userId, chatId, user?.username);
-        if (text) {
-          await this.pushThread(candidate.id, {
-            id: String(msg?.body?.mid || msg?.id || Date.now()),
-            text,
+        if (bodyText) {
+          const mid = String(msg?.body?.mid || msg?.mid || msg?.id || `in-${userId}-${msg?.timestamp || Date.now()}`);
+          const pushed = await this.pushThread(candidate.id, {
+            id: mid,
+            text: bodyText,
             fromBot: false,
-            at: new Date(msg?.timestamp || Date.now()).toISOString(),
+            at: this.normalizeAt(msg?.timestamp),
           });
-          await this.prisma.comment.create({
-            data: {
-              candidateId: candidate.id,
-              body: `[MAX] ${text}`,
-            },
-          });
+          if (pushed.added) {
+            const exists = await this.prisma.comment.findFirst({
+              where: { candidateId: candidate.id, body: `[MAX] ${bodyText}` },
+              orderBy: { createdAt: 'desc' },
+            });
+            // не плодим одинаковый комментарий в ту же секунду при ретрае
+            if (!exists || Date.now() - new Date(exists.createdAt).getTime() > 60_000) {
+              await this.prisma.comment.create({
+                data: { candidateId: candidate.id, body: `[MAX] ${bodyText}` },
+              });
+            }
+          }
         }
         return { ok: true, candidateId: candidate.id };
       }
@@ -450,19 +542,8 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, ignored: type };
   }
 
-  private async findByMaxUser(userId: number) {
-    const list = await this.prisma.candidate.findMany({
-      where: { isDepersonalized: false },
-      select: { id: true, firstName: true, lastName: true, phone: true, extra: true },
-      take: 800,
-      orderBy: { updatedAt: 'desc' },
-    });
-    return list.find((c) => this.extraOf(c).maxUserId === userId) || null;
-  }
-
-  async chat(candidateId: string, opts?: { markRead?: boolean }) {
-    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c) return { configured: this.configured(), linked: false, messages: [], note: 'Кандидат не найден' };
+  async chat(candidateId: string, user: AuthUser, opts?: { markRead?: boolean }) {
+    const c = await this.assertCandidateAccess(candidateId, user);
     if (opts?.markRead !== false) {
       await this.markRead(candidateId).catch(() => undefined);
     }
@@ -470,7 +551,7 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     const extra = this.extraOf(fresh || c);
     const invite = this.inviteLink(candidateId);
     const share = this.shareLink(
-      `Здравствуйте, ${c.firstName}! Напишите нам в MAX: ${invite || 'ссылка будет позже'}`,
+      `Здравствуйте, ${c.firstName || ''}! Напишите нам в MAX: ${invite || 'ссылка будет позже'}`,
     );
     if (!this.configured()) {
       return {
@@ -497,11 +578,10 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async send(candidateId: string, text: string) {
+  async send(candidateId: string, text: string, user: AuthUser) {
     if (!this.configured()) return { ok: false, note: 'Бот MAX не настроен' };
     if (!text?.trim()) return { ok: false, note: 'Пустое сообщение' };
-    const c = await this.prisma.candidate.findUnique({ where: { id: candidateId } });
-    if (!c) return { ok: false, note: 'Кандидат не найден' };
+    const c = await this.assertCandidateAccess(candidateId, user);
     const extra = this.extraOf(c);
     if (!extra.maxUserId) {
       return {
@@ -512,8 +592,9 @@ export class MaxBotService implements OnModuleInit, OnModuleDestroy {
     }
     const sent = await this.sendText(extra.maxUserId, text.trim());
     if (!sent.ok) return sent;
+    const outId = `out-${user.id}-${Date.now()}`;
     await this.pushThread(candidateId, {
-      id: `out-${Date.now()}`,
+      id: outId,
       text: text.trim(),
       fromBot: true,
       at: new Date().toISOString(),

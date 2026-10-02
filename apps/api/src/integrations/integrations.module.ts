@@ -437,26 +437,26 @@ export class IntegrationsController {
 
   @ApiBearerAuth()
   @Get('max/inbox')
-  maxInbox() {
-    return this.maxBot.inbox();
+  maxInbox(@CurrentUser() user: AuthUser) {
+    return this.maxBot.inbox(user);
   }
 
   @ApiBearerAuth()
   @Get('max/dialogs')
-  maxDialogs() {
-    return this.maxBot.dialogs();
+  maxDialogs(@CurrentUser() user: AuthUser) {
+    return this.maxBot.dialogs(user);
   }
 
   @ApiBearerAuth()
   @Post('max/inbox/read-all')
-  maxInboxReadAll() {
-    return this.maxBot.markAllRead();
+  maxInboxReadAll(@CurrentUser() user: AuthUser) {
+    return this.maxBot.markAllRead(user);
   }
 
   @ApiBearerAuth()
   @Post('max-chat/:candidateId/read')
-  maxChatRead(@Param('candidateId') candidateId: string) {
-    return this.maxBot.markRead(candidateId);
+  maxChatRead(@Param('candidateId') candidateId: string, @CurrentUser() user: AuthUser) {
+    return this.maxBot.markRead(candidateId, user);
   }
 
   @ApiBearerAuth()
@@ -468,14 +468,18 @@ export class IntegrationsController {
 
   @ApiBearerAuth()
   @Get('max-chat/:candidateId')
-  maxChat(@Param('candidateId') candidateId: string) {
-    return this.maxBot.chat(candidateId);
+  maxChat(@Param('candidateId') candidateId: string, @CurrentUser() user: AuthUser) {
+    return this.maxBot.chat(candidateId, user);
   }
 
   @ApiBearerAuth()
   @Post('max-chat/:candidateId')
-  maxSend(@Param('candidateId') candidateId: string, @Body('text') text: string) {
-    return this.maxBot.send(candidateId, text);
+  maxSend(
+    @Param('candidateId') candidateId: string,
+    @Body('text') text: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.maxBot.send(candidateId, text, user);
   }
 
   @Public()
