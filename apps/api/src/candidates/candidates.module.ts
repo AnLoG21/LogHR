@@ -87,6 +87,8 @@ export class CandidatesService {
     scoreFrom?: string;
     scoreTo?: string;
     addTypes?: string;
+    hasVacancy?: string;
+    unviewedOnly?: string;
   }, user?: AuthUser) {
     const { skip, take, page, pageSize } = paginate(query.page, query.pageSize);
     const csv = (v?: string) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -141,6 +143,8 @@ export class CandidatesService {
     }
     if (query.favoritesOnly === '1' || query.favoritesOnly === 'true') and.push({ isFavorite: true });
     if (query.trackedOnly === '1' || query.trackedOnly === 'true') and.push({ isTracked: true });
+    if (query.hasVacancy === '1' || query.hasVacancy === 'true') and.push({ vacancyId: { not: null } });
+    if (query.unviewedOnly === '1' || query.unviewedOnly === 'true') and.push({ viewedAt: null });
 
     const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
     const dayEnd = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
@@ -266,6 +270,51 @@ export class CandidatesService {
     });
   }
 
+  async reserveStats(user?: AuthUser) {
+    const visibility = user
+      ? visibilityWhere({
+          id: user.id,
+          role: user.role as any,
+          orgUnitId: (user as any).orgUnitId,
+          visibilityRules: (user as any).visibilityRules,
+        })
+      : {};
+    const base: Prisma.CandidateWhereInput = {
+      isDepersonalized: false,
+      vacancyId: { not: null },
+      ...visibility,
+    };
+    const [total, unviewed] = await Promise.all([
+      this.prisma.candidate.count({ where: base }),
+      this.prisma.candidate.count({ where: { ...base, viewedAt: null } }),
+    ]);
+    return { total, unviewed };
+  }
+
+  async markViewed(id: string) {
+    await this.ensureExists(id);
+    return this.prisma.candidate.update({
+      where: { id },
+      data: { viewedAt: new Date() },
+      select: { id: true, viewedAt: true },
+    });
+  }
+
+  async removeMany(ids: string[]) {
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    if (!unique.length) throw new BadRequestException('Не выбраны кандидаты');
+    let deleted = 0;
+    for (const id of unique) {
+      try {
+        await this.remove(id);
+        deleted += 1;
+      } catch {
+        /* skip missing */
+      }
+    }
+    return { ok: true, deleted };
+  }
+
   async update(
     id: string,
     data: {
@@ -345,6 +394,10 @@ export class CandidatesService {
       },
     });
     if (!item) throw new NotFoundException();
+    if (!item.viewedAt) {
+      await this.prisma.candidate.update({ where: { id }, data: { viewedAt: new Date() } }).catch(() => undefined);
+      (item as any).viewedAt = new Date();
+    }
     return item;
   }
 
@@ -862,7 +915,20 @@ export class CandidatesController {
       scoreFrom: query.scoreFrom,
       scoreTo: query.scoreTo,
       addTypes: query.addTypes,
+      hasVacancy: query.hasVacancy,
+      unviewedOnly: query.unviewedOnly,
     }, user);
+  }
+
+  @Get('reserve-stats')
+  reserveStats(@CurrentUser() user: AuthUser) {
+    return this.service.reserveStats(user);
+  }
+
+  @Roles(SystemRole.ADMIN, SystemRole.RECRUITMENT_LEAD, SystemRole.RECRUITER, SystemRole.HR_BP)
+  @Post('bulk-delete')
+  bulkDelete(@Body('ids') ids: string[]) {
+    return this.service.removeMany(ids || []);
   }
 
   @Patch(':id/flags')
@@ -871,6 +937,11 @@ export class CandidatesController {
     @Body() body: { isFavorite?: boolean; isTracked?: boolean },
   ) {
     return this.service.toggleFlag(id, body);
+  }
+
+  @Post(':id/viewed')
+  markViewed(@Param('id') id: string) {
+    return this.service.markViewed(id);
   }
 
   @Patch(':id')

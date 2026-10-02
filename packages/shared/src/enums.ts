@@ -277,6 +277,8 @@ export type NavItem = {
   label: string;
   icon: string;
   roles: readonly SystemRole[] | SystemRole[];
+  /** Ключ счётчика непросмотренных в шапке меню */
+  badge?: 'reserveUnviewed';
 };
 
 export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
@@ -285,6 +287,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     label: 'Основное',
     items: [
       { href: '/candidates', label: 'Витрина кандидатов', icon: 'users', roles: Object.values(SystemRole) },
+      { href: '/reserve', label: 'Резерв по вакансиям', icon: 'inbox', roles: Object.values(SystemRole), badge: 'reserveUnviewed' },
       { href: '/vacancies', label: 'Вакансии', icon: 'briefcase', roles: Object.values(SystemRole) },
       { href: '/requests', label: 'Заявки', icon: 'file', roles: Object.values(SystemRole) },
       { href: '/org-units', label: 'Орг единицы', icon: 'building', roles: [SystemRole.ADMIN, SystemRole.HR_BP, SystemRole.RECRUITMENT_LEAD] },

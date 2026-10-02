@@ -120,6 +120,32 @@ function CandidatesInner() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['candidates'] }),
   });
 
+  const toggleTrack = useMutation({
+    mutationFn: ({ id, isTracked }: { id: string; isTracked: boolean }) =>
+      api(`/candidates/${id}/flags`, { method: 'PATCH', body: JSON.stringify({ isTracked }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['candidates'] }),
+  });
+
+  const removeOne = useMutation({
+    mutationFn: (id: string) => api(`/candidates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['candidates'] });
+      qc.invalidateQueries({ queryKey: ['reserve-stats'] });
+    },
+  });
+
+  const removeBulk = useMutation({
+    mutationFn: (ids: string[]) => api('/candidates/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    onSuccess: (res: any) => {
+      setBulkMsg(`Удалено: ${res?.deleted ?? selected.size}`);
+      setSelected(new Set());
+      setSelectMode(false);
+      qc.invalidateQueries({ queryKey: ['candidates'] });
+      qc.invalidateQueries({ queryKey: ['reserve-stats'] });
+    },
+    onError: (e: any) => setBulkMsg(e?.message || 'Не удалось удалить'),
+  });
+
   const saveFilter = useMutation({
     mutationFn: (payload: { name: string; filters: CandidateFilterState }) =>
       api('/filters', {
@@ -305,6 +331,12 @@ function CandidatesInner() {
             >
               Отказать
             </Button>
+            <ConfirmDelete
+              label={`Удалить (${selected.size})`}
+              question={`Удалить ${selected.size} кандидатов безвозвратно?`}
+              onConfirm={() => removeBulk.mutate([...selected])}
+              pending={removeBulk.isPending}
+            />
           </>
         ) : null}
         <button type="button" className="sk-btn sk-btn-outline" style={{ fontSize: 13 }} onClick={() => setFieldsOpen(true)}>
@@ -356,6 +388,9 @@ function CandidatesInner() {
               onToggleSelect={() => toggleSelect(c.id)}
               visibleFields={visibleFields}
               onToggleFavorite={() => toggleFav.mutate({ id: c.id, isFavorite: !c.isFavorite })}
+              onToggleTracked={() => toggleTrack.mutate({ id: c.id, isTracked: !c.isTracked })}
+              onDelete={() => removeOne.mutate(c.id)}
+              deletePending={removeOne.isPending}
               onChangeStatus={() => {
                 const st = c.vacancy?.funnel?.stages || stages;
                 setStageModal({
@@ -565,6 +600,9 @@ function CandidateCard({
   c,
   onChangeStatus,
   onToggleFavorite,
+  onToggleTracked,
+  onDelete,
+  deletePending,
   selectMode,
   selected,
   onToggleSelect,
@@ -573,6 +611,9 @@ function CandidateCard({
   c: any;
   onChangeStatus: () => void;
   onToggleFavorite: () => void;
+  onToggleTracked: () => void;
+  onDelete: () => void;
+  deletePending?: boolean;
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
@@ -620,6 +661,21 @@ function CandidateCard({
               >
                 <Icon name="star" />
               </button>
+              <button
+                type="button"
+                className="sk-btn sk-btn-icon"
+                title={c.isTracked ? 'Не отслеживать' : 'Отслеживать'}
+                onClick={onToggleTracked}
+                style={c.isTracked ? { color: 'var(--brand-secondary)' } : undefined}
+              >
+                <Icon name={c.isTracked ? 'eye' : 'eye-off'} />
+              </button>
+              <ConfirmDelete
+                iconOnly
+                question={`Удалить ${fullName(c)}?`}
+                onConfirm={onDelete}
+                pending={deletePending}
+              />
             </div>
           </div>
 

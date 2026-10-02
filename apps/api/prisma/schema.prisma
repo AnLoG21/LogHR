@@ -338,6 +338,8 @@ model Candidate {
   externalId       String?
   isFavorite       Boolean          @default(false)
   isTracked        Boolean          @default(false)
+  /** Когда рекрутёр открыл карточку; null = новый в «Резерве» */
+  viewedAt         DateTime?
   salaryExpect     Float?
   willingToRelocate Boolean         @default(false)
   employmentType   String?

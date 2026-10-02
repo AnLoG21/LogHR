@@ -206,12 +206,36 @@ html[data-theme="dark"] .bg-white { background-color: var(--sk-panel) !important
   .sk-btn-outline:hover { border-color: var(--sk-field-border); background: var(--sk-hover); }
   .sk-btn-icon {
     width: 36px;
+    height: 36px;
     padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: var(--sk-panel);
     border: 1px solid var(--sk-line-strong);
     color: var(--sk-label);
   }
   .sk-btn-icon:hover { background: var(--sk-hover); }
+  .sk-btn-icon svg {
+    width: 18px !important;
+    height: 18px !important;
+    flex-shrink: 0;
+  }
+
+  .nav-badge {
+    margin-left: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e11d48;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    flex-shrink: 0;
+  }
 
   .sk-modal-close {
     flex-shrink: 0;

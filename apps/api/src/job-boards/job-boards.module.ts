@@ -133,6 +133,10 @@ export class JobBoardsService {
               rawPayload: r.raw as any,
             },
           });
+          await this.prisma.candidate.update({
+            where: { id: existing.id },
+            data: { viewedAt: null },
+          });
         }
         updated++;
         continue;

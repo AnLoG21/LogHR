@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { forwardRef, useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
+import { useQuery } from '@tanstack/react-query';
 import { NAV_GROUPS, ROLE_LABELS, SystemRole } from '@skillaz/shared';
 import { useAuth } from '@/lib/auth';
+import { api } from '@/lib/api';
 import { THEME_LABELS, useTheme, type ThemePref } from '@/lib/theme';
 import clsx from 'clsx';
 
@@ -78,6 +80,8 @@ function Icon({ name, className }: { name: string; className?: string }) {
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><circle cx="12" cy="8" r="4" /><path d="M4 20a8 8 0 0 1 16 0" /><path d="M16 11h4" /><path d="M18 9v4" /></svg>;
     case 'trash':
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
+    case 'inbox':
+      return <svg className={c} viewBox="0 0 24 24" {...stroke}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
     case 'copy':
       return <svg className={c} viewBox="0 0 24 24" {...stroke}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></svg>;
     case 'up':
@@ -149,6 +153,16 @@ export function AppShell({
   const [openNav, setOpenNav] = useState(false);
   const [menuQ, setMenuQ] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ main: true, tools: true, boards: true, settings: true });
+  const reserveStats = useQuery({
+    queryKey: ['reserve-stats'],
+    queryFn: () => api<{ total: number; unviewed: number }>('/candidates/reserve-stats'),
+    enabled: !!user,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const badges: Record<string, number> = {
+    reserveUnviewed: reserveStats.data?.unviewed || 0,
+  };
 
   const menuSearchRef = useRef<HTMLInputElement>(null);
 
@@ -280,6 +294,7 @@ export function AppShell({
                     {g.items.map((item) => {
                       const base = item.href.split('?')[0];
                       const active = pathname === base || pathname.startsWith(base + '/');
+                      const count = item.badge ? badges[item.badge] || 0 : 0;
                       return (
                         <Link
                           key={item.href + item.label}
@@ -288,7 +303,12 @@ export function AppShell({
                           className={clsx('nav-item', active && 'active')}
                         >
                           <Icon name={item.icon} />
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{item.label}</span>
+                          {count > 0 ? (
+                            <span className="nav-badge" aria-label={`Новых: ${count}`}>
+                              {count > 99 ? '99+' : count}
+                            </span>
+                          ) : null}
                         </Link>
                       );
                     })}
@@ -436,11 +456,11 @@ export function ConfirmDelete({
   }
   return iconOnly ? (
     <button type="button" className="sk-btn sk-btn-icon" title={label} aria-label={label} onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
-      <Icon name="trash" className="w-4 h-4" />
+      <Icon name="trash" />
     </button>
   ) : (
     <button type="button" className="sk-btn sk-btn-outline" onClick={() => setAsking(true)} style={{ color: 'var(--sk-danger)' }}>
-      <Icon name="trash" className="w-4 h-4" /> {label}
+      <Icon name="trash" /> {label}
     </button>
   );
 }
